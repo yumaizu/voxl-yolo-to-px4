@@ -1,4 +1,5 @@
 import asyncio
+import subprocess
 
 from rclpy.node import Node
 
@@ -28,11 +29,36 @@ class YOLOReceiver(Node):
 
         self.action_triggered = False
 
+        # -------------------------------------------------
+        # Start voxl_mpa_to_ros2
+        # -------------------------------------------------
+
+        self.mpa_to_ros_process = subprocess.Popen(
+            [
+                'ros2',
+                'run',
+                'voxl_mpa_to_ros2',
+                'voxl_mpa_to_ros2_node'
+            ]
+        )
+
+        self.get_logger().info(
+            'Started voxl_mpa_to_ros2'
+        )
+
+        # -------------------------------------------------
+        # ROS 2 QoS configuration
+        # -------------------------------------------------
+
         qos_profile = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
             history=HistoryPolicy.KEEP_LAST,
             depth=10
         )
+
+        # -------------------------------------------------
+        # Subscribe to YOLO detections
+        # -------------------------------------------------
 
         self.subscription = self.create_subscription(
             Aidetection,
@@ -68,10 +94,33 @@ class YOLOReceiver(Node):
 
             self.action_triggered = True
 
-            # Run the asynchronous action callback
-            # on the MAVSDK asyncio event loop.
-
             asyncio.run_coroutine_threadsafe(
                 self.action_callback(),
                 self.loop
             )
+
+    def destroy_node(self):
+
+        self.get_logger().info(
+            'Stopping voxl_mpa_to_ros2'
+        )
+
+        if self.mpa_to_ros_process:
+
+            self.mpa_to_ros_process.terminate()
+
+            try:
+
+                self.mpa_to_ros_process.wait(
+                    timeout=5
+                )
+
+            except subprocess.TimeoutExpired:
+
+                self.get_logger().warn(
+                    'voxl_mpa_to_ros2 did not terminate gracefully'
+                )
+
+                self.mpa_to_ros_process.kill()
+
+        super().destroy_node()

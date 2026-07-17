@@ -420,24 +420,3 @@ PERSON DETECTED - executing configured action
 Sending Land command to PX4
 PX4 Land command successfully sent
 ```
-
-## Future Improvements
-
-Potential future improvements include:
-
--   Rename `hold_triggered` to `action_triggered`
--   Make the detection class configurable
--   Make the confidence threshold configurable
--   Support multiple detection classes
--   Support different actions for different classes
--   Add a cooldown period between actions
--   Add a configurable action sequence
--   Add additional PX4 actions such as:
-    -   Return to Launch
-    -   Disarm
-    -   Pause mission
-    -   Start mission
-    -   Change flight mode
--   Add graceful cancellation of active MAVSDK commands
--   Add configuration through a YAML file or ROS 2 parameters
--   Add safety checks before executing flight actions

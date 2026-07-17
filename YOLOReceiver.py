@@ -39,7 +39,9 @@ class YOLOReceiver(Node):
                 'run',
                 'voxl_mpa_to_ros2',
                 'voxl_mpa_to_ros2_node'
-            ]
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
         )
 
         self.get_logger().info(

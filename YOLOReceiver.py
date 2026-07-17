@@ -15,7 +15,7 @@ class YOLOReceiver(Node):
         self,
         loop,
         detection_topic,
-        hold_callback
+        action_callback
     ):
 
         super(YOLOReceiver, self).__init__(
@@ -23,9 +23,10 @@ class YOLOReceiver(Node):
         )
 
         self.loop = loop
-        self.hold_callback = hold_callback
 
-        self.hold_triggered = False
+        self.action_callback = action_callback
+
+        self.action_triggered = False
 
         qos_profile = QoSProfile(
             reliability=ReliabilityPolicy.BEST_EFFORT,
@@ -58,17 +59,19 @@ class YOLOReceiver(Node):
         if (
             msg.class_name == 'person'
             and msg.class_confidence >= 0.6
-            and not self.hold_triggered
+            and not self.action_triggered
         ):
 
             self.get_logger().warn(
-                'PERSON DETECTED - switching modes'
+                'PERSON DETECTED - executing configured action'
             )
 
-            self.hold_triggered = True
+            self.action_triggered = True
 
-            # Run the callback on the asyncio event loop
+            # Run the asynchronous action callback
+            # on the MAVSDK asyncio event loop.
+
             asyncio.run_coroutine_threadsafe(
-                self.hold_callback(),
+                self.action_callback(),
                 self.loop
             )

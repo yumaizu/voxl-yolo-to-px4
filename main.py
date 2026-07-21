@@ -24,6 +24,10 @@ Supported URL formats:
         - UDP out: udpout://dest_host:dest_port
         - TCP in: tcpin://bind_host:bind_port
         - TCP out: tcpout://dest_host:dest_port
+
+for VOXL2 change the following lines in /etc/modalai/voxl-vision-hub.conf
+        "en_localhost_mavlink_udp":     true,  // false -> true
+        "localhost_udp_port_number":    14551, // set the same port bellow
 """
 PX4_ADDRESS = 'udp://:14551'
 

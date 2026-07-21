@@ -61,11 +61,11 @@ class YOLOReceiver(Node):
 
         # wait for voxl-tflite-server to start outputting a pipe
         pipe_path = "/run/mpa/{}tflite".format(pipe_prefix + "_" if pipe_prefix else "")
+        self.get_logger().info(
+            'Waiting for voxl-tflite-server to start...'
+        )
         # wait for directory to be created
         while not os.path.exists(pipe_path):
-            self.get_logger().info(
-                'Waiting for voxl-tflite-server to start...'
-            )
             sleep(1)
 
         self.get_logger().info(

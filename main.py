@@ -59,6 +59,12 @@ Future actions can be added to the action registry below.
 """
 DETECTION_ACTION = 'hold'
 
+"""
+TFLITE_OUTPUT_PIPE_PREFIX: str
+
+The prefix of the output pipe created by voxl-tflite-server.
+"""
+TFLITE_OUTPUT_PIPE_PREFIX = 'yolo'
 
 # =========================================================
 
@@ -79,7 +85,8 @@ def main():
     yolo_receiver = YOLOReceiver(
         loop=loop,
         detection_topic=YOLO_DETECTION_TOPIC,
-        action_callback=None
+        action_callback=None,
+        pipe_prefix=TFLITE_OUTPUT_PIPE_PREFIX
     )
 
     px4_connector = PX4Connector(

@@ -1,5 +1,7 @@
 import asyncio
+import os
 import subprocess
+from time import sleep
 
 from rclpy.node import Node
 
@@ -9,8 +11,6 @@ from rclpy.qos import HistoryPolicy
 
 from voxl_msgs.msg import Aidetection
 
-from time import sleep
-
 
 class YOLOReceiver(Node):
 
@@ -18,7 +18,8 @@ class YOLOReceiver(Node):
         self,
         loop,
         detection_topic,
-        action_callback
+        action_callback,
+        pipe_prefix
     ):
 
         super(YOLOReceiver, self).__init__(
@@ -49,14 +50,24 @@ class YOLOReceiver(Node):
             stderr=subprocess.DEVNULL
         )
 
-        # Wait for voxl-tflite-server to start before starting voxl_mpa_to_ros2
-        stat = subprocess.run(['systemctl', 'is-active', '--quiet', 'voxl-tflite-server']).returncode
-        while stat != 0:
+        # # Wait for voxl-tflite-server to start before starting voxl_mpa_to_ros2
+        # stat = subprocess.run(['systemctl', 'is-active', '--quiet', 'voxl-tflite-server']).returncode
+        # while stat != 0:
+        #     self.get_logger().info(
+        #         'Waiting for voxl-tflite-server to start...'
+        #     )
+        #     stat =subprocess.run(['systemctl', 'is-active', '--quiet', 'voxl-tflite-server']).returncode
+        #     sleep(1)
+
+        # wait for voxl-tflite-server to start outputting a pipe
+        pipe_path = "/run/mpa/{}tflite".format(pipe_prefix + "_" if pipe_prefix else "")
+        # wait for directory to be created
+        while not os.path.exists(pipe_path):
             self.get_logger().info(
                 'Waiting for voxl-tflite-server to start...'
             )
-            stat =subprocess.run(['systemctl', 'is-active', '--quiet', 'voxl-tflite-server']).returncode
             sleep(1)
+
         self.get_logger().info(
             'Started voxl-tflite-server service'
         )
@@ -178,8 +189,5 @@ class YOLOReceiver(Node):
             )
             stat =subprocess.run(['systemctl', 'is-active', '--quiet', 'voxl-tflite-server']).returncode
             sleep(1)
-        self.get_logger().info(
-            'Stopped voxl-tflite-server service'
-        )
 
         super().destroy_node()

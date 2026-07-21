@@ -30,6 +30,20 @@ class YOLOReceiver(Node):
         self.action_triggered = False
 
         # -------------------------------------------------
+        # Start voxl-tflite-server service
+        # -------------------------------------------------
+
+        subprocess.Popen(
+            [
+                'systemctl',
+                'start',
+                'voxl-tflite-server'
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
+
+        # -------------------------------------------------
         # Start voxl_mpa_to_ros2
         # -------------------------------------------------
 
@@ -124,5 +138,15 @@ class YOLOReceiver(Node):
                 )
 
                 self.mpa_to_ros_process.kill()
+
+        subprocess.Popen(
+            [
+                'systemctl',
+                'stop',
+                'voxl-tflite-server'
+            ],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL
+        )
 
         super().destroy_node()

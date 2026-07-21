@@ -50,12 +50,12 @@ class YOLOReceiver(Node):
         )
 
         # Wait for voxl-tflite-server to start before starting voxl_mpa_to_ros2
-        stat =subprocess.run(['systemctl', 'is-active', '--quiet', 'voxl-tflite-server'], capture_output=True).returncode
+        stat =subprocess.run(['systemctl', 'is-active', '--quiet', 'voxl-tflite-server']).returncode
         while stat != 0:
             self.get_logger().info(
                 'Waiting for voxl-tflite-server to start...'
             )
-            stat =subprocess.run(['systemctl', 'is-active', '--quiet', 'voxl-tflite-server'], capture_output=True).returncode
+            stat =subprocess.run(['systemctl', 'is-active', '--quiet', 'voxl-tflite-server']).returncode
             sleep(1)
         self.get_logger().info(
             'Started voxl-tflite-server service'

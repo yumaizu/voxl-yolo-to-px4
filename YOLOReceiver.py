@@ -9,6 +9,8 @@ from rclpy.qos import HistoryPolicy
 
 from voxl_msgs.msg import Aidetection
 
+from time import sleep
+
 
 class YOLOReceiver(Node):
 
@@ -33,6 +35,10 @@ class YOLOReceiver(Node):
         # Start voxl-tflite-server service
         # -------------------------------------------------
 
+        self.get_logger().info(
+            'Starting voxl-tflite-server service'
+        )
+
         subprocess.Popen(
             [
                 'systemctl',
@@ -41,6 +47,18 @@ class YOLOReceiver(Node):
             ],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL
+        )
+
+        # Wait for voxl-tflite-server to start before starting voxl_mpa_to_ros2
+        stat =subprocess.run(['systemctl', 'is-active', '--quiet', 'voxl-tflite-server'], capture_output=True).returncode
+        while stat != 0:
+            self.get_logger().info(
+                'Waiting for voxl-tflite-server to start...'
+            )
+            stat =subprocess.run(['systemctl', 'is-active', '--quiet', 'voxl-tflite-server'], capture_output=True).returncode
+            sleep(1)
+        self.get_logger().info(
+            'Started voxl-tflite-server service'
         )
 
         # -------------------------------------------------

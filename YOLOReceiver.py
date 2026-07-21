@@ -167,4 +167,19 @@ class YOLOReceiver(Node):
             stderr=subprocess.DEVNULL
         )
 
+        self.get_logger().info(
+            'Stopping voxl-tflite-server service'
+        )
+        # Wait for voxl-tflite-server to stop before destroying the node
+        stat =subprocess.run(['systemctl', 'is-active', '--quiet', 'voxl-tflite-server']).returncode
+        while stat != 1:
+            self.get_logger().info(
+                'Waiting for voxl-tflite-server to stop...'
+            )
+            stat =subprocess.run(['systemctl', 'is-active', '--quiet', 'voxl-tflite-server']).returncode
+            sleep(1)
+        self.get_logger().info(
+            'Stopped voxl-tflite-server service'
+        )
+
         super().destroy_node()

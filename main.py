@@ -8,66 +8,12 @@ import rclpy
 from YOLOReceiver import YOLOReceiver
 from PX4Connector import PX4Connector
 
+import configparser
 
-# Configuration
-# =========================================================
-
-"""
-PX4_ADDRESS : str
-The address of the remote system. If None, it will default to
-udpin://0.0.0.0:14540.
-
-Supported URL formats:
-
-        - Serial: serial:///path/to/serial/dev[:baudrate]
-        - UDP in: udpin://bind_host:bind_port
-        - UDP out: udpout://dest_host:dest_port
-        - TCP in: tcpin://bind_host:bind_port
-        - TCP out: tcpout://dest_host:dest_port
-
-for VOXL2 change the following lines in /etc/modalai/voxl-vision-hub.conf
-        "en_localhost_mavlink_udp":     true,  // false -> true
-        "localhost_udp_port_number":    14551, // set the same port bellow
-"""
-PX4_ADDRESS = 'udp://:14551'
-
-
-"""
-YOLO_DETECTION_TOPIC : str
-The ROS 2 topic to listen for YOLO detections on.
-
-Message type:
-    voxl_msgs/Aidetection
-"""
-YOLO_DETECTION_TOPIC = '/yolo_tflite_data'
-
-
-"""
-DETECTION_ACTION : str
-
-The action to take when a valid detection is received.
-
-Available actions:
-
-    'hold'
-        Switch the PX4 vehicle to Hold mode.
-
-    'land'
-        Command the vehicle to land.
-
-Future actions can be added to the action registry below.
-"""
-DETECTION_ACTION = 'hold'
-
-"""
-TFLITE_OUTPUT_PIPE_PREFIX: str
-
-The prefix of the output pipe created by voxl-tflite-server.
-"""
-TFLITE_OUTPUT_PIPE_PREFIX = 'yolo'
-
-# =========================================================
-
+config = configparser.ConfigParser()
+if not config.read('config.ini'):
+    print('Failed to read config.ini, using default config.ini')
+    config.read('config_default.ini')
 
 def main():
 
@@ -84,14 +30,14 @@ def main():
 
     yolo_receiver = YOLOReceiver(
         loop=loop,
-        detection_topic=YOLO_DETECTION_TOPIC,
+        detection_topic=config.get('YOLO', 'DETECTION_TOPIC'),
         action_callback=None,
-        pipe_prefix=TFLITE_OUTPUT_PIPE_PREFIX
+        pipe_prefix=config.get('YOLO', 'TFLITE_OUTPUT_PIPE_PREFIX')
     )
 
     px4_connector = PX4Connector(
         logger=yolo_receiver.get_logger(),
-        system_address=PX4_ADDRESS
+        system_address=config.get('PX4', 'ADDRESS')
     )
 
     actions = {
@@ -102,6 +48,7 @@ def main():
 
     }
 
+    DETECTION_ACTION = config.get('YOLO', 'DETECTION_ACTION')
     if DETECTION_ACTION not in actions:
 
         yolo_receiver.get_logger().error(

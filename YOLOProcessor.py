@@ -49,6 +49,15 @@ class YOLOProcessor:
     def start(self):
         # Start the background RTSP reader and buffering thread
         self.video.start()
+        
+        # --- FULLSCREEN WINDOW INITIALIZATION ---
+        if self.enable_debug_window:
+            cv2.namedWindow("YOLO Debug Window", cv2.WINDOW_NORMAL)
+            cv2.setWindowProperty("YOLO Debug Window", cv2.WND_PROP_FULLSCREEN, cv2.WINDOW_FULLSCREEN)
+            
+        # Variables for FPS calculation
+        fps_ema = 0.0
+        prev_loop_time = time.time()
             
         while self.running:
             # pre_yolo_time is captured the exact moment the buffer yields the delayed frame
@@ -102,6 +111,21 @@ class YOLOProcessor:
 
             # Generate annotated debug frame
             annotated_frame = results[0].plot()
+
+            # --- FPS Calculation and Drawing ---
+            current_time = time.time()
+            time_diff = current_time - prev_loop_time
+            if time_diff > 0:
+                current_fps = 1.0 / time_diff
+                if fps_ema == 0.0:
+                    fps_ema = current_fps
+                else:
+                    fps_ema = (fps_ema * 0.9) + (current_fps * 0.1) # Smooth out the FPS display
+            prev_loop_time = current_time
+
+            # Draw the FPS counter in the top-left corner
+            cv2.putText(annotated_frame, f"FPS: {fps_ema:.1f}", (30, 60), 
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 0), 3, cv2.LINE_AA)
 
             # Update JPEG frame buffer for web streaming if enabled
             if self.web_view:

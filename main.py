@@ -2,125 +2,93 @@
 
 import asyncio
 import threading
+import logging
+import configparser
 
-import rclpy
-
-from YOLOReceiver import YOLOReceiver
+from YOLOProcessor import YOLOProcessor
 from PX4Connector import PX4Connector
 
-import configparser
+logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
+logger = logging.getLogger(__name__)
 
 config = configparser.ConfigParser()
 if not config.read('config.ini'):
-    print('Failed to read config.ini, using default config.ini')
+    logger.warning('Failed to read config.ini, using default config.ini')
     config.read('config_default.ini')
 
 def main():
-
     loop = asyncio.new_event_loop()
-
     asyncio_thread = threading.Thread(
         target=loop.run_forever,
         daemon=True
     )
-
     asyncio_thread.start()
 
-    rclpy.init()
-
-    yolo_receiver = YOLOReceiver(
-        loop=loop,
-        detection_topic=config.get('YOLO', 'DETECTION_TOPIC'),
-        action_callback=None,
-        pipe_prefix=config.get('YOLO', 'TFLITE_OUTPUT_PIPE_PREFIX')
-    )
-
     px4_connector = PX4Connector(
-        logger=yolo_receiver.get_logger(),
+        logger=logger,
         system_address=config.get('PX4', 'ADDRESS')
     )
 
     actions = {
-
         'hold': px4_connector.set_hold_mode,
-
         'land': px4_connector.set_land_mode,
-
     }
 
-    DETECTION_ACTION = config.get('YOLO', 'DETECTION_ACTION')
+    DETECTION_ACTION = config.get('PX4', 'DETECTION_ACTION')
     if DETECTION_ACTION not in actions:
-
-        yolo_receiver.get_logger().error(
-            'Unknown detection action: {}'.format(
-                DETECTION_ACTION
-            )
-        )
-
-        yolo_receiver.get_logger().error(
-            'Available actions: {}'.format(
-                ', '.join(actions.keys())
-            )
-        )
-
-        yolo_receiver.destroy_node()
-
-        rclpy.shutdown()
-
-        loop.call_soon_threadsafe(
-            loop.stop
-        )
-
+        logger.error(f'Unknown detection action: {DETECTION_ACTION}')
+        logger.error(f'Available actions: {", ".join(actions.keys())}')
+        loop.call_soon_threadsafe(loop.stop)
         asyncio_thread.join()
-
         return
 
-    yolo_receiver.action_callback = (
-        actions[DETECTION_ACTION]
-    )
-
-    yolo_receiver.get_logger().info(
-        'Detection action configured: {}'.format(
-            DETECTION_ACTION
-        )
-    )
+    logger.info(f'Detection action configured: {DETECTION_ACTION}')
 
     future = asyncio.run_coroutine_threadsafe(
         px4_connector.connect(),
         loop
     )
 
+    yolo_processor = None
+    web_view = None
+    
     try:
-
-        # Wait for MAVSDK connection
         future.result()
 
-        yolo_receiver.get_logger().info(
-            'YOLO receiver is ready'
+        enable_web_stream = config.getboolean('YOLO', 'ENABLE_WEB_STREAM', fallback=True)
+        
+        # Instantiate and start the web server if enabled
+        if enable_web_stream:
+            from YOLOWebView import YOLOWebView
+            web_port = config.get('YOLO', 'WEB_PORT', fallback='8080')
+            web_view = YOLOWebView(port=web_port, logger=logger)
+            web_view.start()
+
+        yolo_processor = YOLOProcessor(
+            loop=loop,
+            rtsp_url=config.get('YOLO', 'RTSP_URL'),
+            model_path=config.get('YOLO', 'MODEL_PATH'),
+            confidence_threshold=config.get('YOLO', 'CONFIDENCE_THRESHOLD'),
+            device=config.get('YOLO', 'DEVICE', fallback='auto'),
+            enable_debug_window=config.getboolean('YOLO', 'ENABLE_DEBUG_WINDOW', fallback=False),
+            web_view=web_view,
+            action_callback=actions[DETECTION_ACTION],
+            logger=logger
         )
 
-        # Start ROS 2 event loop
-        rclpy.spin(yolo_receiver)
+        logger.info('YOLO Processor is ready')
+        yolo_processor.start()
 
     except KeyboardInterrupt:
-
-        yolo_receiver.get_logger().info(
-            'Shutting down'
-        )
-
+        logger.info('Shutting down')
     finally:
-
-        yolo_receiver.destroy_node()
-
-        rclpy.shutdown()
-
-        loop.call_soon_threadsafe(
-            loop.stop
-        )
-
+        if yolo_processor:
+            yolo_processor.stop()
+        if web_view:
+            web_view.stop()
+        
+        loop.call_soon_threadsafe(loop.stop)
         asyncio_thread.join()
 
-
 if __name__ == '__main__':
-
     main()

@@ -2,7 +2,7 @@ import time
 import datetime
 from mavsdk import System
 from mavsdk.action import ActionError
-from mavsdk.offboard import Offboard, OffboardError
+from mavsdk.offboard import Offboard, VelocityBodyYawspeed, OffboardError
 
 class PX4Connector:
     def __init__(self, logger, system_address):
@@ -60,8 +60,10 @@ class PX4Connector:
             
             self.logger.warning(f'[{formatted_time}] PERSON DETECTED: Requesting Offboard mode switch')
             
-            # Since an external process is already streaming setpoints, 
-            # we only need to tell MAVSDK to start/activate offboard mode.
+            # Send a dummy setpoint first to satisfy MAVSDK's internal requirement
+            await self.drone.offboard.set_velocity_body(VelocityBodyYawspeed(0.0, 0.0, 0.0, 0.0))
+            
+            # Request offboard mode start
             await self.drone.offboard.start()
             self.logger.warning('PX4 Offboard mode successfully started')
             

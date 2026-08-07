@@ -1,26 +1,31 @@
-import os
 import asyncio
 import cv2
 import time
+import datetime
 import torch
 import numpy as np
 from ultralytics import YOLO
+from DelayedVideo import DelayedVideo
 
 class YOLOProcessor:
     def __init__(self, loop, rtsp_url, model_path, confidence_threshold, device, 
-                 enable_debug_window, web_view, action_callback, logger):
+                 enable_debug_window, web_view, artificial_latency_ms, action_callback, logger):
         self.loop = loop
-        self.rtsp_url = rtsp_url
         self.model_path = model_path
         self.confidence_threshold = float(confidence_threshold)
         self.enable_debug_window = enable_debug_window
         self.web_view = web_view
+        
+        # Convert milliseconds to seconds for MAVLink asyncio.sleep
+        self.latency_sec = float(artificial_latency_ms) / 1000.0
+        
         self.action_callback = action_callback
         self.logger = logger
-
         self.action_triggered = False
         self.running = True
-        self.cap = None
+
+        # Initialize the delayed video stream buffer
+        self.video = DelayedVideo(rtsp_url, artificial_latency_ms, logger)
 
         # Dynamic device handling
         if device.lower() == 'auto':
@@ -37,38 +42,29 @@ class YOLOProcessor:
         blank_frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
         self.model(blank_frame, device=self.device, verbose=False)
 
-    def _connect_with_retries(self):
-        """Attempts connection to RTSP stream."""
-        while self.running:
-            self.logger.info(f"Attempting connection to RTSP stream at: {self.rtsp_url}")
-            os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
-            self.cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
-            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
-            if self.cap.isOpened():
-                self.logger.info("Successfully connected to RTSP feed!")
-                return True
-                
-            self.logger.warning("RTSP server rejected connection. Retrying in 1 second...")
-            time.sleep(1)
-            
-        return False
+    def _format_ts(self, timestamp):
+        """Converts epoch float to human-readable YYYY-MM-DD HH:MM:SS.fff"""
+        return datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
     def start(self):
-        if not self._connect_with_retries():
-            return
+        # Start the background RTSP reader and buffering thread
+        self.video.start()
             
-        while self.running and self.cap.isOpened():
-            ret, frame = self.cap.read()
+        while self.running:
+            # pre_yolo_time is captured the exact moment the buffer yields the delayed frame
+            ret, frame, frame_received_time = self.video.read()
+            pre_yolo_time = time.time() 
+            
             if not ret:
-                self.logger.error("Lost frame from RTSP stream. Waiting 2 seconds before reconnecting...")
-                self.cap.release()
-                time.sleep(2)
-                if not self._connect_with_retries():
-                    break
+                # Buffer is still filling or waiting for delay to expire; yield CPU
+                time.sleep(0.01)
+                
+                # Keep OpenCV GUI responsive even when waiting
+                if self.enable_debug_window:
+                    if cv2.waitKey(1) & 0xFF == ord('q'):
+                        self.logger.info("Exit requested via 'q' key.")
+                        break
                 continue
-
-            frame_received_time = time.time()
 
             # YOLO inference
             results = self.model(frame, device=self.device, verbose=False)
@@ -77,7 +73,7 @@ class YOLOProcessor:
             person_detected = False
             for result in results:
                 for box in result.boxes:
-                    if int(box.cls) == 0 and box.conf >= self.confidence_threshold:
+                    if int(box.cls) == 0 and float(box.conf) >= self.confidence_threshold:
                         person_detected = True
                         break
                 if person_detected:
@@ -86,11 +82,21 @@ class YOLOProcessor:
             if person_detected and not self.action_triggered:
                 self.action_triggered = True
                 
-                self.logger.warning(f"[{frame_received_time}] PERSON DETECTED: RTSP frame received")
-                self.logger.warning(f"[{inference_complete_time}] PERSON DETECTED: YOLO inference complete")
+                self.logger.warning(f"[{self._format_ts(frame_received_time)}] PERSON DETECTED: RTSP frame received (Pre-YOLO Delay START)")
+                self.logger.warning(f"[{self._format_ts(pre_yolo_time)}] PERSON DETECTED: Sent to YOLO (Pre-YOLO Delay END)")
+                self.logger.warning(f"[{self._format_ts(inference_complete_time)}] PERSON DETECTED: YOLO inference complete (Pre-MAVLink Delay START)")
                 
+                # Virtual Latency Injection: After YOLO, before MAVLink
+                async def delayed_mavlink_action():
+                    if self.latency_sec > 0:
+                        await asyncio.sleep(self.latency_sec)
+                    
+                    mavlink_send_time = time.time()
+                    self.logger.warning(f"[{self._format_ts(mavlink_send_time)}] PERSON DETECTED: Sending MAVLink signal (Pre-MAVLink Delay END)")
+                    await self.action_callback()
+
                 asyncio.run_coroutine_threadsafe(
-                    self.action_callback(),
+                    delayed_mavlink_action(),
                     self.loop
                 )
 
@@ -99,8 +105,8 @@ class YOLOProcessor:
 
             # Update JPEG frame buffer for web streaming if enabled
             if self.web_view:
-                ret, jpeg = cv2.imencode('.jpg', annotated_frame)
-                if ret:
+                ret_jpeg, jpeg = cv2.imencode('.jpg', annotated_frame)
+                if ret_jpeg:
                     self.web_view.update_frame(jpeg.tobytes())
 
             # Render local desktop window if enabled
@@ -113,7 +119,6 @@ class YOLOProcessor:
     def stop(self):
         self.logger.info("Stopping YOLO processor...")
         self.running = False
-        if self.cap and self.cap.isOpened():
-            self.cap.release()
+        self.video.stop()
         if self.enable_debug_window:
             cv2.destroyAllWindows()

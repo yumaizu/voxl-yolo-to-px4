@@ -72,6 +72,7 @@ def main():
             device=config.get('YOLO', 'DEVICE', fallback='auto'),
             enable_debug_window=config.getboolean('YOLO', 'ENABLE_DEBUG_WINDOW', fallback=False),
             web_view=web_view,
+            artificial_latency_ms=config.get('GENERAL', 'ARTIFICIAL_LATENCY_MS', fallback='0'),
             action_callback=actions[DETECTION_ACTION],
             logger=logger
         )

@@ -1,0 +1,17 @@
+# Drone Communication
+mavsdk
+
+# Computer Vision & Machine Learning
+numpy
+opencv-python
+ultralytics
+
+# ---------------------------------------------------------
+# IMPORTANT PYTORCH NOTE FOR RTX 3090 / RTX 6000 Ada
+# ---------------------------------------------------------
+# Ultralytics will automatically install a default version of PyTorch.
+# To ensure your system utilizes your NVIDIA GPUs instead of your CPU, 
+# you should manually install the CUDA 12.6 version of PyTorch using 
+# the command below before or after running this requirements file:
+#
+# pip install --force-reinstall torch torchvision --index-url https://download.pytorch.org/whl/cu126

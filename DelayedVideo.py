@@ -12,9 +12,7 @@ class DelayedVideo:
         
         self.running = False
         self.cap = None
-        # Max buffer size prevents memory leaks if YOLO falls behind RTSP speed
-        # 1500 frames holds ~50 seconds of 30fps video
-        self.buffer = deque(maxlen=1500)
+        self.buffer = deque()
         self.reader_thread = None
 
     def _connect(self):
@@ -23,6 +21,9 @@ class DelayedVideo:
             self.logger.info(f"Attempting connection to RTSP stream at: {self.rtsp_url}")
             os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
             self.cap = cv2.VideoCapture(self.rtsp_url, cv2.CAP_FFMPEG)
+            
+            # Prevent FFMPEG internal network buffer buildup
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
             
             if self.cap.isOpened():
                 self.logger.info("Successfully connected to RTSP feed!")
@@ -42,10 +43,8 @@ class DelayedVideo:
                 ret, frame = self.cap.read()
                 
                 if not ret:
-                    # If we are shutting down, exit gracefully instead of reconnecting
                     if not self.running:
                         break
-                        
                     self.logger.error("Lost frame from RTSP stream. Waiting 2 seconds before reconnecting...")
                     self.cap.release()
                     time.sleep(2)
@@ -53,11 +52,10 @@ class DelayedVideo:
                         break
                     continue
                 
-                # Append frame and the exact time it was received to the buffer
+                # Append frame and the exact time it was received
                 self.buffer.append((frame, time.time()))
                 
             except cv2.error:
-                # Catch the C++ exception if the capture object is destroyed during shutdown
                 if not self.running:
                     break
                 else:
@@ -76,29 +74,39 @@ class DelayedVideo:
 
     def read(self):
         """
-        Retrieves the oldest frame if it has aged past the latency threshold.
+        Retrieves the frame that matches the artificial delay setting.
+        Automatically drops stale frames if a backlog accumulates.
         Returns: (success_boolean, frame, frame_timestamp)
         """
         if not self.buffer:
             return False, None, 0.0
 
+        now = time.time()
+
+        # Maximum allowed frame age before it is considered backlog (Target delay + 100ms tolerance)
+        max_allowed_age = self.delay_sec + 0.100
+
+        # 1. PURGE BACKLOG: Drop any frames that are older than our allowed threshold
+        while len(self.buffer) > 1 and (now - self.buffer[0][1]) > max_allowed_age:
+            self.buffer.popleft()
+
+        # 2. EVALUATE TARGET FRAME
         oldest_frame, oldest_time = self.buffer[0]
-        
-        # If the oldest frame has reached our virtual delay, yield it
-        if time.time() - oldest_time >= self.delay_sec:
+        frame_age = now - oldest_time
+
+        # If the frame has reached our target delay, yield it
+        if frame_age >= self.delay_sec:
             self.buffer.popleft()
             return True, oldest_frame, oldest_time
-        
-        # Still waiting for the frame to age
+
+        # Still waiting for frame to reach target delay
         return False, None, 0.0
 
     def stop(self):
         self.running = False
         
-        # 1. Wait for the background thread to finish its current read() execution
         if self.reader_thread and self.reader_thread.is_alive():
             self.reader_thread.join(timeout=1.0)
             
-        # 2. Safely release the capture object after the thread is done with it
         if self.cap:
             self.cap.release()

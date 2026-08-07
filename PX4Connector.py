@@ -51,3 +51,17 @@ class PX4Connector:
             self.logger.error(f'Failed to send Land command: {e}')
         except Exception as e:
             self.logger.error(f'Unexpected MAVSDK error: {e}')
+
+    async def set_offboard_mode(self):
+        try:
+            mavlink_timestamp = time.time()
+            formatted_time = self._format_ts(mavlink_timestamp)
+            
+            self.logger.warning(f'[{formatted_time}] PERSON DETECTED: Sending Offboard mode MAVLink signal to PX4')
+            await self.drone.action.set_flight_mode("OFFBOARD")
+            self.logger.warning('PX4 Offboard command successfully sent')
+            
+        except ActionError as e:
+            self.logger.error(f'Failed to send Offboard command: {e}')
+        except Exception as e:
+            self.logger.error(f'Unexpected MAVSDK error: {e}')

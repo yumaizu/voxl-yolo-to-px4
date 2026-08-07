@@ -32,6 +32,7 @@ def main():
     actions = {
         'hold': px4_connector.set_hold_mode,
         'land': px4_connector.set_land_mode,
+        'offboard': px4_connector.set_offboard_mode
     }
 
     DETECTION_ACTION = config.get('PX4', 'DETECTION_ACTION')

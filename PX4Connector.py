@@ -2,6 +2,7 @@ import time
 import datetime
 from mavsdk import System
 from mavsdk.action import ActionError
+from mavsdk.offboard import Offboard, OffboardError
 
 class PX4Connector:
     def __init__(self, logger, system_address):
@@ -29,7 +30,7 @@ class PX4Connector:
             mavlink_timestamp = time.time()
             formatted_time = self._format_ts(mavlink_timestamp)
             
-            self.logger.warning(f'[{formatted_time}] PERSON DETECTED: Sending Hold mode MAVLink signal to PX4')
+            self.logger.warning(f'[{formatted_time}] PERSON DETECTED: Sending Hold mode signal to PX4')
             await self.drone.action.hold()
             self.logger.warning('PX4 Hold command successfully sent')
             
@@ -43,7 +44,7 @@ class PX4Connector:
             mavlink_timestamp = time.time()
             formatted_time = self._format_ts(mavlink_timestamp)
             
-            self.logger.warning(f'[{formatted_time}] PERSON DETECTED: Sending Land mode MAVLink signal to PX4')
+            self.logger.warning(f'[{formatted_time}] PERSON DETECTED: Sending Land mode signal to PX4')
             await self.drone.action.land()
             self.logger.warning('PX4 Land command successfully sent')
             
@@ -57,11 +58,14 @@ class PX4Connector:
             mavlink_timestamp = time.time()
             formatted_time = self._format_ts(mavlink_timestamp)
             
-            self.logger.warning(f'[{formatted_time}] PERSON DETECTED: Sending Offboard mode MAVLink signal to PX4')
-            await self.drone.action.set_flight_mode("OFFBOARD")
-            self.logger.warning('PX4 Offboard command successfully sent')
+            self.logger.warning(f'[{formatted_time}] PERSON DETECTED: Requesting Offboard mode switch')
             
-        except ActionError as e:
-            self.logger.error(f'Failed to send Offboard command: {e}')
+            # Since an external process is already streaming setpoints, 
+            # we only need to tell MAVSDK to start/activate offboard mode.
+            await self.drone.offboard.start()
+            self.logger.warning('PX4 Offboard mode successfully started')
+            
+        except OffboardError as e:
+            self.logger.error(f'Failed to start Offboard mode (OffboardError): {e}')
         except Exception as e:
-            self.logger.error(f'Unexpected MAVSDK error: {e}')
+            self.logger.error(f'Unexpected MAVSDK error during Offboard start: {e}')

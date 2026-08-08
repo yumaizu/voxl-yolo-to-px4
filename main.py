@@ -4,9 +4,11 @@ import asyncio
 import threading
 import logging
 import configparser
+import sys
 
 from YOLOProcessor import YOLOProcessor
 from PX4Connector import PX4Connector
+from VisionHubConnector import VisionHubConnector
 
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logger = logging.getLogger(__name__)
@@ -24,18 +26,69 @@ def main():
     )
     asyncio_thread.start()
 
-    px4_connector = PX4Connector(
-        logger=logger,
-        system_address=config.get('PX4', 'ADDRESS')
-    )
+    # Determine which connector to use from the GENERAL section
+    CONNECTOR_TYPE = config.get('GENERAL', 'CONNECTOR_TYPE', fallback='VISION_HUB').upper()
+    logger.info(f'Using connector type: {CONNECTOR_TYPE}')
 
-    actions = {
-        'hold': px4_connector.set_hold_mode,
-        'land': px4_connector.set_land_mode,
-        'offboard': px4_connector.set_offboard_mode
-    }
+    actions = {}
 
-    DETECTION_ACTION = config.get('PX4', 'DETECTION_ACTION')
+    if CONNECTOR_TYPE == 'PX4':
+        connector = PX4Connector(
+            logger=logger,
+            system_address=config.get('PX4', 'ADDRESS')
+        )
+        actions = {
+            'hold': connector.set_hold_mode,
+            'land': connector.set_land_mode,
+            'offboard': connector.set_offboard_mode
+        }
+        
+        # Connect asynchronously 
+        future = asyncio.run_coroutine_threadsafe(
+            connector.connect(),
+            loop
+        )
+        try:
+            future.result() # Wait for the connection to establish
+        except Exception as e:
+            logger.error(f'Failed to connect to PX4: {e}')
+            loop.call_soon_threadsafe(loop.stop)
+            asyncio_thread.join()
+            sys.exit(1)
+
+    elif CONNECTOR_TYPE == 'VISION_HUB':
+        # Retrieve network config from the VISIONHUB section
+        drone_ip = config.get('VISIONHUB', 'DRONE_IP', fallback='192.168.8.1')
+        trigger_port = config.getint('VISIONHUB', 'TRIGGER_PORT', fallback=5005)
+
+        connector = VisionHubConnector(
+            logger=logger,
+            drone_ip=drone_ip,
+            port=trigger_port
+        )
+
+        # Wrap the synchronous UDP send in an async function for the YOLO loop
+        async def async_trigger_descent():
+            connector.trigger_descent()
+
+        actions = {
+            'hold': async_trigger_descent,
+            'land': async_trigger_descent,
+            'offboard': async_trigger_descent
+        }
+        
+        # Connect synchronously
+        connector.connect()
+
+    else:
+        logger.error(f'Unknown CONNECTOR_TYPE: {CONNECTOR_TYPE}. Must be "PX4" or "VISION_HUB".')
+        loop.call_soon_threadsafe(loop.stop)
+        asyncio_thread.join()
+        sys.exit(1)
+
+
+    # Validate the chosen detection action
+    DETECTION_ACTION = config.get('PX4', 'DETECTION_ACTION', fallback='offboard')
     if DETECTION_ACTION not in actions:
         logger.error(f'Unknown detection action: {DETECTION_ACTION}')
         logger.error(f'Available actions: {", ".join(actions.keys())}')
@@ -45,17 +98,10 @@ def main():
 
     logger.info(f'Detection action configured: {DETECTION_ACTION}')
 
-    future = asyncio.run_coroutine_threadsafe(
-        px4_connector.connect(),
-        loop
-    )
-
     yolo_processor = None
     web_view = None
     
     try:
-        future.result()
-
         enable_web_stream = config.getboolean('YOLO', 'ENABLE_WEB_STREAM', fallback=True)
         
         # Instantiate and start the web server if enabled

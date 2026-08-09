@@ -7,7 +7,6 @@ import configparser
 import sys
 import time
 
-from YOLOProcessor import YOLOProcessor
 from PX4Connector import PX4Connector
 from VisionHubConnector import VisionHubConnector
 
@@ -109,6 +108,13 @@ def main():
 
     try:
         if YOLO_MODE == 'python':
+            # Dynamically import YOLOProcessor to prevent cv2/ultralytics crashes on the drone
+            try:
+                from YOLOProcessor import YOLOProcessor
+            except ImportError as e:
+                logger.error(f'Failed to import YOLO modules (cv2/ultralytics): {e}')
+                sys.exit(1)
+
             enable_web_stream = config.getboolean('YOLO', 'ENABLE_WEB_STREAM', fallback=True)
             
             # Instantiate and start the web server if enabled

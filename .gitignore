@@ -222,3 +222,5 @@ __marimo__/
 
 config.ini
 *.pt
+yolo_detections/*
+*.jpg

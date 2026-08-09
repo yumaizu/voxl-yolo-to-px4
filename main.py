@@ -49,6 +49,9 @@ console_handler.setFormatter(ColorFormatter())
 console_handler.setLevel(logging.DEBUG) 
 root_logger.addHandler(console_handler)
 
+# Suppress internal aiogrpc errors during KeyboardInterrupt shutdown
+logging.getLogger('aiogrpc').setLevel(logging.CRITICAL)
+
 # Create the main logger
 logger = logging.getLogger('main')
 

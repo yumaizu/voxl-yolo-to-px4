@@ -34,8 +34,14 @@ class PX4Connector:
                         self.on_arm_state_change(is_armed)
                 
                     self.is_armed = is_armed
+        except asyncio.CancelledError:
+            pass
         except Exception as e:
-            self.logger.error(f"Failed to monitor arm state: {e}")
+            error_str = str(e)
+            if "Socket closed" in error_str or "UNAVAILABLE" in error_str:
+                self.logger.debug("MAVSDK telemetry stream closed (graceful shutdown).")
+            else:
+                self.logger.error(f"Failed to monitor arm state: {e}")
 
     async def connect(self):
         self.logger.info(f'Connecting to PX4 using MAVSDK on {self.system_address}')

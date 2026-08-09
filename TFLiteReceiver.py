@@ -119,7 +119,7 @@ class TFLiteReceiver(Node):
     def detection_callback(self, msg):
 
         if self.log_all_detections:
-            self.logger.info(
+            self.logger.debug(
                 'Detection: {} | Confidence: {:.2f}'.format(
                     msg.class_name,
                     msg.class_confidence

@@ -88,7 +88,7 @@ class YOLOProcessor:
                     
                     if self.log_all_detections:
                         cls_name = self.model.names[cls_id] if hasattr(self.model, 'names') else str(cls_id)
-                        self.logger.info(f"Detection: {cls_name} | Confidence: {conf:.2f}")
+                        self.logger.debug(f"Detection: {cls_name} | Confidence: {conf:.2f}")
 
                     if cls_id == 0 and conf >= self.confidence_threshold:
                         person_detected = True

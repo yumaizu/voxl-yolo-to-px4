@@ -46,6 +46,8 @@ if root_logger.hasHandlers():
     root_logger.handlers.clear()
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(ColorFormatter())
+# Ensure the handler processes all levels passed to it
+console_handler.setLevel(logging.DEBUG) 
 root_logger.addHandler(console_handler)
 
 # Create the main logger
@@ -162,6 +164,10 @@ def main():
                 web_view = YOLOWebView(port=web_port, logger=logging.getLogger('web_view'))
                 web_view.start()
 
+            processor_logger = logging.getLogger('yolo_processor')
+            if LOG_ALL_DETECTIONS:
+                processor_logger.setLevel(logging.DEBUG)
+
             yolo_processor = YOLOProcessor(
                 loop=loop,
                 rtsp_url=config.get('YOLO', 'RTSP_URL'),
@@ -172,7 +178,7 @@ def main():
                 web_view=web_view,
                 artificial_latency_ms=config.get('GENERAL', 'ARTIFICIAL_LATENCY_MS', fallback='0'),
                 action_callback=action_callback,
-                logger=logging.getLogger('yolo_processor'),
+                logger=processor_logger,
                 log_all_detections=LOG_ALL_DETECTIONS
             )
 
@@ -196,11 +202,15 @@ def main():
             # Retrieve receiver config from the TFLITE_RECEIVER section
             pipe_prefix = config.get('TFLITE_RECEIVER', 'PIPE_PREFIX', fallback='')
 
+            receiver_logger = logging.getLogger('tflite_receiver')
+            if LOG_ALL_DETECTIONS:
+                receiver_logger.setLevel(logging.DEBUG)
+
             tflite_receiver = TFLiteReceiver(
                 loop=loop,
                 action_callback=action_callback,
                 pipe_prefix=pipe_prefix,
-                logger=logging.getLogger('tflite_receiver'),
+                logger=receiver_logger,
                 log_all_detections=LOG_ALL_DETECTIONS
             )
 

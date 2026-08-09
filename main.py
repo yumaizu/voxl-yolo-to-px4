@@ -210,6 +210,7 @@ def main():
             rclpy_module.init()
 
             pipe_prefix = config.get('TFLITE_RECEIVER', 'PIPE_PREFIX', fallback='')
+            confidence_threshold = config.get('TFLITE_RECEIVER', 'CONFIDENCE_THRESHOLD', fallback='0.6')
 
             receiver_logger = logging.getLogger('tflite_receiver')
             if LOG_ALL_DETECTIONS:
@@ -219,6 +220,7 @@ def main():
                 loop=loop,
                 action_callback=action_callback,
                 pipe_prefix=pipe_prefix,
+                confidence_threshold=confidence_threshold,
                 logger=receiver_logger,
                 log_all_detections=LOG_ALL_DETECTIONS
             )

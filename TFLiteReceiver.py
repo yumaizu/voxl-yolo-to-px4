@@ -18,6 +18,7 @@ class TFLiteReceiver(Node):
         loop,
         action_callback,
         pipe_prefix,
+        confidence_threshold,
         logger,
         log_all_detections=False
     ):
@@ -29,6 +30,7 @@ class TFLiteReceiver(Node):
         self.loop = loop
         self.action_callback = action_callback
         self.action_triggered = False
+        self.confidence_threshold = float(confidence_threshold)
         self.logger = logger
         self.log_all_detections = log_all_detections
         
@@ -133,7 +135,7 @@ class TFLiteReceiver(Node):
 
         if (
             msg.class_name == 'person'
-            and msg.class_confidence >= 0.6
+            and msg.class_confidence >= self.confidence_threshold
             and not self.action_triggered
         ):
 

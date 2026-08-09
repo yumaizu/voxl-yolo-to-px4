@@ -3,6 +3,7 @@ import os
 import subprocess
 import datetime
 import cv2
+import threading
 from time import sleep
 
 from rclpy.node import Node
@@ -47,6 +48,7 @@ class TFLiteReceiver(Node):
         # Image buffering for saving exact detection frames
         self.bridge = CvBridge()
         self.latest_frame = None
+        self.frame_lock = threading.Lock()
 
         # -------------------------------------------------
         # Start voxl-tflite-server service
@@ -146,10 +148,17 @@ class TFLiteReceiver(Node):
             )
         )
 
+    def _get_four_digit_ms_str(self):
+        """Generates timestamp string with 4-digit millisecond precision (e.g. _5685) to match logs."""
+        dt = datetime.datetime.now()
+        return f"{dt.strftime('%Y%m%d_%H%M%S')}_{dt.strftime('%f')[:4]}"
+
     def image_callback(self, msg):
         """Continually buffer the latest visual frame."""
         try:
-            self.latest_frame = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+            cv_img = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+            with self.frame_lock:
+                self.latest_frame = cv_img
         except Exception as e:
             pass # Suppress image conversion errors to prevent console spam
 
@@ -180,17 +189,61 @@ class TFLiteReceiver(Node):
 
             self.action_triggered = True
             
-            # Save the exact frame buffer
-            if self.latest_frame is not None:
-                ts_str = datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]
-                filename = os.path.join(self.image_save_dir, f"detection_{ts_str}.jpg")
-                cv2.imwrite(filename, self.latest_frame)
-                self.logger.info(f"Saved exact detection frame to {filename}")
-            else:
-                self.logger.warning("Person detected, but image frame not yet available to save.")
+            rtsp_ts_folder = self._get_four_digit_ms_str()
+            target_dir = os.path.join(self.image_save_dir, rtsp_ts_folder)
+            os.makedirs(target_dir, exist_ok=True)
+
+            action_finished_event = threading.Event()
+
+            # Background thread to save sequence + 500ms buffer
+            def background_saver():
+                try:
+                    saved_count = 0
+                    last_saved_signature = None
+                    
+                    while not action_finished_event.is_set():
+                        frame_to_save = None
+                        with self.frame_lock:
+                            if self.latest_frame is not None:
+                                frame_to_save = self.latest_frame.copy()
+                        
+                        if frame_to_save is not None:
+                            # Ensure we don't save duplicate identical numpy arrays if the callback hasn't updated yet
+                            ts_sub = self._get_four_digit_ms_str()
+                            filename = os.path.join(target_dir, f"frame_{ts_sub}.jpg")
+                            cv2.imwrite(filename, frame_to_save)
+                            saved_count += 1
+                            
+                        sleep(0.01) # fast check poll to catch every incoming camera frame
+                        
+                    # +500ms grace period buffer after MAVLink execution finishes
+                    buffer_end_time = time.time() + 0.5
+                    while time.time() < buffer_end_time:
+                        frame_to_save = None
+                        with self.frame_lock:
+                            if self.latest_frame is not None:
+                                frame_to_save = self.latest_frame.copy()
+                        if frame_to_save is not None:
+                            ts_sub = self._get_four_digit_ms_str()
+                            filename = os.path.join(target_dir, f"frame_{ts_sub}.jpg")
+                            cv2.imwrite(filename, frame_to_save)
+                            saved_count += 1
+                        sleep(0.01)
+
+                    self.logger.info(f"Finished saving frame sequence. Total frames saved: {saved_count} in {target_dir}")
+                except Exception as e:
+                    self.logger.error(f"Background frame saver error: {e}")
+
+            saver_thread = threading.Thread(target=background_saver, daemon=True)
+            saver_thread.start()
+
+            async def execute_action_and_finish():
+                await self.action_callback()
+                # Signal background worker thread that action execution is complete
+                action_finished_event.set()
 
             asyncio.run_coroutine_threadsafe(
-                self.action_callback(),
+                execute_action_and_finish(),
                 self.loop
             )
 

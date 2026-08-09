@@ -12,6 +12,10 @@ import os
 from PX4Connector import PX4Connector
 from VisionHubConnector import VisionHubConnector
 
+# Suppress FFmpeg HEVC/H.265 stream decoding error spam in the console
+os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "loglevel;32"  # AV_LOG_INFO (or 24 for warning)
+
 # -------------------------------------------------
 # Custom Colorized Logging Formatter
 # -------------------------------------------------

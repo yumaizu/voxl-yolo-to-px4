@@ -4,6 +4,7 @@ import time
 import datetime
 import torch
 import os
+import threading
 import numpy as np
 from ultralytics import YOLO
 from DelayedVideo import DelayedVideo
@@ -56,6 +57,17 @@ class YOLOProcessor:
         """Converts epoch float to human-readable YYYY-MM-DD HH:MM:SS.fff"""
         return datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
+    def _get_four_digit_ms_str(self, epoch_time=None):
+        """Generates timestamp string with 4-digit millisecond precision (e.g. _5685) to match logs."""
+        if epoch_time:
+            dt = datetime.datetime.fromtimestamp(epoch_time)
+        else:
+            dt = datetime.datetime.now()
+        base_str = dt.strftime('%Y%m%d_%H%M%S_%f')
+        # %f gives 6 digits (microseconds). Taking the first 5 characters of the fractional part gives 4 digits of milliseconds.
+        # Format: YYYYmmdd_HHMMSS + _ + 4 digits
+        return f"{dt.strftime('%Y%m%d_%H%M%S')}_{dt.strftime('%f')[:4]}"
+
     def reset_trigger(self):
         """Resets the detection block to allow subsequent triggers."""
         self.action_triggered = False
@@ -80,10 +92,7 @@ class YOLOProcessor:
             pre_yolo_time = time.time() 
             
             if not ret:
-                # Buffer is still filling or waiting for delay to expire; yield CPU
-                time.sleep(0.01)
-                
-                # Keep OpenCV GUI responsive even when waiting
+                time.sleep(0.005)
                 if self.enable_debug_window:
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         self.logger.info("Exit requested via 'q' key.")
@@ -123,13 +132,52 @@ class YOLOProcessor:
                 self.logger.warning(f"[{self._format_ts(pre_yolo_time)}] PERSON DETECTED: Sent to YOLO (Pre-YOLO Delay END)")
                 self.logger.warning(f"[{self._format_ts(inference_complete_time)}] PERSON DETECTED: YOLO inference complete (Pre-MAVLink Delay START)")
                 
-                # Save the exact annotated frame
-                ts_str = datetime.datetime.fromtimestamp(inference_complete_time).strftime('%Y%m%d_%H%M%S_%f')[:-3]
-                filename = os.path.join(self.image_save_dir, f"detection_{ts_str}.jpg")
-                cv2.imwrite(filename, annotated_frame)
-                self.logger.info(f"Saved exact detection frame to {filename}")
+                # Setup structured directory path using the 4-digit ms format matching the received frame log
+                rtsp_ts_folder = self._get_four_digit_ms_str(frame_received_time)
+                target_dir = os.path.join(self.image_save_dir, rtsp_ts_folder)
+                os.makedirs(target_dir, exist_ok=True)
+                
+                # Save the initial trigger frame immediately
+                init_filename = os.path.join(target_dir, f"frame_{rtsp_ts_folder}.jpg")
+                cv2.imwrite(init_filename, annotated_frame)
 
-                # Virtual Latency Injection: After YOLO, before MAVLink
+                # Thread coordination event to signal when action finishes + buffer
+                action_finished_event = threading.Event()
+
+                def background_saver():
+                    try:
+                        saved_count = 1
+                        # Continuously harvest frames as fast as possible without missing any
+                        while not action_finished_event.is_set():
+                            r_ret, r_frame, r_time = self.video.read()
+                            if r_ret:
+                                ts_sub = self._get_four_digit_ms_str(r_time if r_time else None)
+                                f_name = os.path.join(target_dir, f"frame_{ts_sub}.jpg")
+                                cv2.imwrite(f_name, r_frame)
+                                saved_count += 1
+                            else:
+                                time.sleep(0.002) # brief yield if buffer is temporarily empty
+                            
+                        # +500ms grace period buffer after MAVLink execution completes
+                        buffer_end_time = time.time() + 0.5
+                        while time.time() < buffer_end_time:
+                            r_ret, r_frame, r_time = self.video.read()
+                            if r_ret:
+                                ts_sub = self._get_four_digit_ms_str(r_time if r_time else None)
+                                f_name = os.path.join(target_dir, f"frame_{ts_sub}.jpg")
+                                cv2.imwrite(f_name, r_frame)
+                                saved_count += 1
+                            else:
+                                time.sleep(0.002)
+
+                        self.logger.info(f"Finished saving frame sequence. Total frames saved: {saved_count} in {target_dir}")
+                    except Exception as e:
+                        self.logger.error(f"Background saver thread error: {e}")
+
+                # Launch background thread
+                saver_thread = threading.Thread(target=background_saver, daemon=True)
+                saver_thread.start()
+
                 async def delayed_mavlink_action():
                     if self.latency_sec > 0:
                         await asyncio.sleep(self.latency_sec)
@@ -137,6 +185,9 @@ class YOLOProcessor:
                     mavlink_send_time = time.time()
                     self.logger.warning(f"[{self._format_ts(mavlink_send_time)}] PERSON DETECTED: Sending MAVLink signal (Pre-MAVLink Delay END)")
                     await self.action_callback()
+                    
+                    # Signal background thread that MAVLink execution is complete
+                    action_finished_event.set()
 
                 asyncio.run_coroutine_threadsafe(
                     delayed_mavlink_action(),

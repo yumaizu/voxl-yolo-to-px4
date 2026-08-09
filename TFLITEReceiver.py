@@ -11,7 +11,7 @@ from rclpy.qos import HistoryPolicy
 
 from voxl_msgs.msg import Aidetection
 
-class YOLOReceiver(Node):
+class TFLITEReceiver(Node):
 
     def __init__(
         self,
@@ -22,8 +22,8 @@ class YOLOReceiver(Node):
         logger
     ):
 
-        super(YOLOReceiver, self).__init__(
-            'yolo_receiver'
+        super(TFLITEReceiver, self).__init__(
+            'tflite_receiver'
         )
 
         self.loop = loop
@@ -96,7 +96,7 @@ class YOLOReceiver(Node):
         )
 
         # -------------------------------------------------
-        # Subscribe to YOLO detections
+        # Subscribe to TFLite detections
         # -------------------------------------------------
 
         self.subscription = self.create_subscription(
@@ -107,7 +107,7 @@ class YOLOReceiver(Node):
         )
 
         self.logger.info(
-            'Listening for YOLO detections on {}'.format(
+            'Listening for TFLite detections on {}'.format(
                 detection_topic
             )
         )

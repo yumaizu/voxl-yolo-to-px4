@@ -53,7 +53,7 @@ logger = logging.getLogger('main')
 
 config = configparser.ConfigParser()
 if not config.read('config.ini'):
-    logger.warning('Failed to read config.ini, using config_default.ini')
+    logger.warning('Failed to read config.ini, using default config.ini')
     config.read('config_default.ini')
 
 def main():
@@ -140,7 +140,7 @@ def main():
 
     yolo_processor = None
     web_view = None
-    yolo_receiver = None
+    tflite_receiver = None
     rclpy_module = None
 
     try:
@@ -181,7 +181,7 @@ def main():
         elif YOLO_MODE == 'voxl-tflite-server':
             try:
                 import rclpy
-                from YOLOReceiver import YOLOReceiver
+                from TFLITEReceiver import TFLITEReceiver
                 rclpy_module = rclpy
             except ImportError as e:
                 logger.error(f'Failed to import ROS 2 / rclpy modules for voxl-tflite-server mode: {e}')
@@ -189,19 +189,20 @@ def main():
 
             rclpy_module.init()
 
-            detection_topic = config.get('YOLO', 'DETECTION_TOPIC', fallback='/tflite/aidetection')
-            pipe_prefix = config.get('YOLO', 'PIPE_PREFIX', fallback='')
+            # Retrieve receiver config from the new TFLITE_RECEIVER section
+            detection_topic = config.get('TFLITE_RECEIVER', 'DETECTION_TOPIC', fallback='/tflite/aidetection')
+            pipe_prefix = config.get('TFLITE_RECEIVER', 'PIPE_PREFIX', fallback='')
 
-            yolo_receiver = YOLOReceiver(
+            tflite_receiver = TFLITEReceiver(
                 loop=loop,
                 detection_topic=detection_topic,
                 action_callback=action_callback,
                 pipe_prefix=pipe_prefix,
-                logger=logging.getLogger('yolo_receiver')
+                logger=logging.getLogger('tflite_receiver')
             )
 
-            logger.info('YOLO Receiver is ready. Spinning ROS 2 node...')
-            rclpy_module.spin(yolo_receiver)
+            logger.info('TFLITE Receiver is ready. Spinning ROS 2 node...')
+            rclpy_module.spin(tflite_receiver)
 
         else:
             logger.error(f'Unknown YOLO_MODE: {YOLO_MODE}. Must be "python" or "voxl-tflite-server".')
@@ -213,8 +214,8 @@ def main():
             yolo_processor.stop()
         if web_view:
             web_view.stop()
-        if yolo_receiver:
-            yolo_receiver.destroy_node()
+        if tflite_receiver:
+            tflite_receiver.destroy_node()
         if rclpy_module and rclpy_module.ok():
             rclpy_module.shutdown()
         

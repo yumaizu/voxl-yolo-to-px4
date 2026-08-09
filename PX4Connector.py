@@ -49,7 +49,8 @@ class PX4Connector:
                 break
                 
         # Start monitoring the arm state in the background
-        asyncio.create_task(self._monitor_arm_state())
+        # Changed to ensure_future for Python 3.6 compatibility on VOXL2
+        asyncio.ensure_future(self._monitor_arm_state())
 
         # Block the main thread until the first telemetry packet arrives
         self.logger.info('Waiting for initial telemetry stream...')

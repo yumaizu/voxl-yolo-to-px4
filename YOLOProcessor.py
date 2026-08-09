@@ -158,8 +158,8 @@ class YOLOProcessor:
                             else:
                                 time.sleep(0.002) # brief yield if buffer is temporarily empty
                             
-                        # +500ms grace period buffer after MAVLink execution completes
-                        buffer_end_time = time.time() + 0.5
+                        # +1000ms grace period buffer after MAVLink execution completes
+                        buffer_end_time = time.time() + 1.0
                         while time.time() < buffer_end_time:
                             r_ret, r_frame, r_time = self.video.read()
                             if r_ret:

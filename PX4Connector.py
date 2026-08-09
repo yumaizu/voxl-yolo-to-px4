@@ -1,18 +1,41 @@
 import time
 import datetime
+import asyncio
 from mavsdk import System
 from mavsdk.action import ActionError
 from mavsdk.offboard import Offboard, VelocityBodyYawspeed, OffboardError
 
 class PX4Connector:
-    def __init__(self, logger, system_address):
+    def __init__(self, logger, system_address, on_arm_state_change=None):
         self.logger = logger
         self.system_address = system_address
+        self.on_arm_state_change = on_arm_state_change
         self.drone = None
+        self.is_armed = None
 
     def _format_ts(self, timestamp):
         """Converts epoch float to human-readable YYYY-MM-DD HH:MM:SS.fff"""
         return datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
+
+    async def _monitor_arm_state(self):
+        """Continuously monitors MAVLink telemetry for arm/disarm events."""
+        try:
+            async for is_armed in self.drone.telemetry.armed():
+                # Silently capture the initial state so connect() can log the full summary block
+                if self.is_armed is None:
+                    self.is_armed = is_armed
+                    
+                # Log any subsequent changes to the arm state
+                elif self.is_armed != is_armed:
+                    state_str = "ARMED" if is_armed else "DISARMED"
+                    self.logger.info(f"PX4 state changed to: {state_str}")
+                    
+                    if self.on_arm_state_change:
+                        self.on_arm_state_change(is_armed)
+                
+                    self.is_armed = is_armed
+        except Exception as e:
+            self.logger.error(f"Failed to monitor arm state: {e}")
 
     async def connect(self):
         self.logger.info(f'Connecting to PX4 using MAVSDK on {self.system_address}')
@@ -24,6 +47,37 @@ class PX4Connector:
             if state.is_connected:
                 self.logger.info('Connected to PX4!')
                 break
+                
+        # Start monitoring the arm state in the background
+        asyncio.create_task(self._monitor_arm_state())
+
+        # Block the main thread until the first telemetry packet arrives
+        self.logger.info('Waiting for initial telemetry stream...')
+        while self.is_armed is None:
+            await asyncio.sleep(0.1)
+            
+        # Fetch initial flight mode
+        flight_mode = "UNKNOWN"
+        async for mode in self.drone.telemetry.flight_mode():
+            flight_mode = mode
+            break
+            
+        # Fetch initial battery percentage
+        battery_pct = 0.0
+        async for battery in self.drone.telemetry.battery():
+            battery_pct = battery.remaining_percent
+            break
+
+        # Output the drone's initial status block
+        self.logger.info('====================================')
+        self.logger.info('        DRONE INITIAL STATUS        ')
+        self.logger.info('====================================')
+        self.logger.info(f' Armed State : {"ARMED" if self.is_armed else "DISARMED"}')
+        self.logger.info(f' Flight Mode : {flight_mode}')
+        self.logger.info(f' Battery     : {int(battery_pct * 100)}%')
+        self.logger.info('====================================')
+        
+        self.logger.info('Telemetry connection established. Starting detection processors...')
 
     async def set_hold_mode(self):
         try:

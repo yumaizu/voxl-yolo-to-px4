@@ -116,6 +116,11 @@ class TFLiteReceiver(Node):
             )
         )
 
+    def reset_trigger(self):
+        """Resets the detection block to allow subsequent triggers."""
+        self.action_triggered = False
+        self.logger.info('Action trigger state has been reset.')
+
     def detection_callback(self, msg):
 
         if self.log_all_detections:

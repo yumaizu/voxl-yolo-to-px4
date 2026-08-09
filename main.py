@@ -46,7 +46,6 @@ if root_logger.hasHandlers():
     root_logger.handlers.clear()
 console_handler = logging.StreamHandler()
 console_handler.setFormatter(ColorFormatter())
-# Ensure the handler processes all levels passed to it
 console_handler.setLevel(logging.DEBUG) 
 root_logger.addHandler(console_handler)
 
@@ -68,28 +67,58 @@ def main():
 
     # Retrieve logging configuration
     LOG_ALL_DETECTIONS = config.getboolean('GENERAL', 'LOG_ALL_DETECTIONS', fallback=False)
+    
+    # Track our processors globally for the telemetry reset callback
+    yolo_processor = None
+    tflite_receiver = None
+    web_view = None
+    rclpy_module = None
+
+    def on_arm_state_change(is_armed):
+        """Callback fired by PX4Connector when the drone arm state changes."""
+        if is_armed:
+            logger.info("Drone armed. Resetting active detection triggers.")
+            if yolo_processor is not None:
+                yolo_processor.reset_trigger()
+            if tflite_receiver is not None:
+                tflite_receiver.reset_trigger()
+
+    # -------------------------------------------------
+    # Telemetry Initialization
+    # -------------------------------------------------
+    mavlink_address = config.get('PX4', 'ADDRESS')
+    
+    px4_connector = PX4Connector(
+        logger=logging.getLogger('px4'),
+        system_address=mavlink_address,
+        on_arm_state_change=on_arm_state_change
+    )
+    
+    # Always connect to MAVLink first to establish telemetry and get drone status
+    future = asyncio.run_coroutine_threadsafe(px4_connector.connect(), loop)
+    try:
+        future.result()
+    except Exception as e:
+        logger.error(f'Failed to establish telemetry connection: {e}')
+        loop.call_soon_threadsafe(loop.stop)
+        asyncio_thread.join()
+        sys.exit(1)
 
     # -------------------------------------------------
     # Connector Selection (PX4 vs VISION_HUB)
     # -------------------------------------------------
     CONNECTOR_TYPE = config.get('GENERAL', 'CONNECTOR_TYPE', fallback='VISION_HUB').upper()
-    logger.info(f'Using connector type: {CONNECTOR_TYPE}')
+    logger.info(f'Configuring action callback for connector type: {CONNECTOR_TYPE}')
 
     action_callback = None
 
     if CONNECTOR_TYPE == 'PX4':
-        connector = PX4Connector(
-            logger=logging.getLogger('px4'),
-            system_address=config.get('PX4', 'ADDRESS')
-        )
-        
         px4_actions = {
-            'hold': connector.set_hold_mode,
-            'land': connector.set_land_mode,
-            'offboard': connector.set_offboard_mode
+            'hold': px4_connector.set_hold_mode,
+            'land': px4_connector.set_land_mode,
+            'offboard': px4_connector.set_offboard_mode
         }
         
-        # Only parse and validate DETECTION_ACTION if we are using the PX4 connector
         DETECTION_ACTION = config.get('PX4', 'DETECTION_ACTION', fallback='offboard')
         if DETECTION_ACTION not in px4_actions:
             logger.error(f'Unknown detection action: {DETECTION_ACTION}')
@@ -100,36 +129,22 @@ def main():
             
         action_callback = px4_actions[DETECTION_ACTION]
         logger.info(f'Detection action configured: {DETECTION_ACTION}')
-        
-        future = asyncio.run_coroutine_threadsafe(
-            connector.connect(),
-            loop
-        )
-        try:
-            future.result()
-        except Exception as e:
-            logger.error(f'Failed to connect to PX4: {e}')
-            loop.call_soon_threadsafe(loop.stop)
-            asyncio_thread.join()
-            sys.exit(1)
 
     elif CONNECTOR_TYPE == 'VISION_HUB':
         drone_ip = config.get('VISIONHUB', 'DRONE_IP', fallback='127.0.0.1')
         trigger_port = config.getint('VISIONHUB', 'TRIGGER_PORT', fallback=5005)
 
-        connector = VisionHubConnector(
+        vision_hub = VisionHubConnector(
             logger=logging.getLogger('vision_hub'),
             drone_ip=drone_ip,
             port=trigger_port
         )
+        vision_hub.connect()
 
         async def async_trigger_descent():
-            connector.trigger_descent()
+            vision_hub.trigger_descent()
 
-        # Hardcode the callback to our UDP trigger, skipping the config check entirely
         action_callback = async_trigger_descent
-        
-        connector.connect()
 
     else:
         logger.error(f'Unknown CONNECTOR_TYPE: {CONNECTOR_TYPE}. Must be "PX4" or "VISION_HUB".')
@@ -142,11 +157,6 @@ def main():
     # -------------------------------------------------
     YOLO_MODE = config.get('GENERAL', 'YOLO_MODE', fallback='python').strip().lower()
     logger.info(f'Using YOLO mode: {YOLO_MODE}')
-
-    yolo_processor = None
-    web_view = None
-    tflite_receiver = None
-    rclpy_module = None
 
     try:
         if YOLO_MODE == 'python':
@@ -199,7 +209,6 @@ def main():
 
             rclpy_module.init()
 
-            # Retrieve receiver config from the TFLITE_RECEIVER section
             pipe_prefix = config.get('TFLITE_RECEIVER', 'PIPE_PREFIX', fallback='')
 
             receiver_logger = logging.getLogger('tflite_receiver')

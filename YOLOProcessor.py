@@ -47,6 +47,11 @@ class YOLOProcessor:
         """Converts epoch float to human-readable YYYY-MM-DD HH:MM:SS.fff"""
         return datetime.datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S.%f')[:-3]
 
+    def reset_trigger(self):
+        """Resets the detection block to allow subsequent triggers."""
+        self.action_triggered = False
+        self.logger.info('Action trigger state has been reset.')
+
     def start(self):
         # Start the background RTSP reader and buffering thread
         self.video.start()

@@ -15,10 +15,10 @@ class YOLOProcessor:
         self.confidence_threshold = float(confidence_threshold)
         self.enable_debug_window = enable_debug_window
         self.web_view = web_view
-        
+
         # Convert milliseconds to seconds for MAVLink asyncio.sleep
         self.latency_sec = float(artificial_latency_ms) / 1000.0
-        
+
         self.action_callback = action_callback
         self.logger = logger
         self.action_triggered = False
@@ -34,10 +34,10 @@ class YOLOProcessor:
         else:
             self.device = device
             self.logger.info(f"Using configured device: {self.device}")
-        
+
         self.logger.info(f"Loading YOLO model on device: {self.device}...")
         self.model = YOLO(self.model_path)
-        
+
         self.logger.info("Running model warmup...")
         blank_frame = np.zeros((1080, 1920, 3), dtype=np.uint8)
         self.model(blank_frame, device=self.device, verbose=False)

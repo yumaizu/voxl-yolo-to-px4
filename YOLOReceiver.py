@@ -11,7 +11,6 @@ from rclpy.qos import HistoryPolicy
 
 from voxl_msgs.msg import Aidetection
 
-
 class YOLOReceiver(Node):
 
     def __init__(

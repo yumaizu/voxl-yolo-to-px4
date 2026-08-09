@@ -3,19 +3,21 @@ import cv2
 import time
 import datetime
 import torch
+import os
 import numpy as np
 from ultralytics import YOLO
 from DelayedVideo import DelayedVideo
 
 class YOLOProcessor:
     def __init__(self, loop, rtsp_url, model_path, confidence_threshold, device, 
-                 enable_debug_window, web_view, artificial_latency_ms, action_callback, logger, log_all_detections=False):
+                 enable_debug_window, web_view, artificial_latency_ms, action_callback, logger, log_all_detections=False, image_save_dir='/data/yolo'):
         self.loop = loop
         self.model_path = model_path
         self.confidence_threshold = float(confidence_threshold)
         self.enable_debug_window = enable_debug_window
         self.web_view = web_view
         self.log_all_detections = log_all_detections
+        self.image_save_dir = image_save_dir
 
         # Convert milliseconds to seconds for MAVLink asyncio.sleep
         self.latency_sec = float(artificial_latency_ms) / 1000.0
@@ -85,6 +87,9 @@ class YOLOProcessor:
             results = self.model(frame, device=self.device, verbose=False)
             inference_complete_time = time.time()
 
+            # Generate annotated debug frame early so it can be saved on detection
+            annotated_frame = results[0].plot()
+
             person_detected = False
             for result in results:
                 for box in result.boxes:
@@ -110,6 +115,12 @@ class YOLOProcessor:
                 self.logger.warning(f"[{self._format_ts(pre_yolo_time)}] PERSON DETECTED: Sent to YOLO (Pre-YOLO Delay END)")
                 self.logger.warning(f"[{self._format_ts(inference_complete_time)}] PERSON DETECTED: YOLO inference complete (Pre-MAVLink Delay START)")
                 
+                # Save the exact annotated frame
+                ts_str = datetime.datetime.fromtimestamp(inference_complete_time).strftime('%Y%m%d_%H%M%S_%f')[:-3]
+                filename = os.path.join(self.image_save_dir, f"detection_{ts_str}.jpg")
+                cv2.imwrite(filename, annotated_frame)
+                self.logger.info(f"Saved exact detection frame to {filename}")
+
                 # Virtual Latency Injection: After YOLO, before MAVLink
                 async def delayed_mavlink_action():
                     if self.latency_sec > 0:
@@ -123,9 +134,6 @@ class YOLOProcessor:
                     delayed_mavlink_action(),
                     self.loop
                 )
-
-            # Generate annotated debug frame
-            annotated_frame = results[0].plot()
 
             # --- FPS Calculation and Drawing ---
             current_time = time.time()

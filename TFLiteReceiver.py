@@ -1,6 +1,8 @@
 import asyncio
 import os
 import subprocess
+import datetime
+import cv2
 from time import sleep
 
 from rclpy.node import Node
@@ -10,6 +12,8 @@ from rclpy.qos import ReliabilityPolicy
 from rclpy.qos import HistoryPolicy
 
 from voxl_msgs.msg import Aidetection
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
 
 class TFLiteReceiver(Node):
 
@@ -20,7 +24,8 @@ class TFLiteReceiver(Node):
         pipe_prefix,
         confidence_threshold,
         logger,
-        log_all_detections=False
+        log_all_detections=False,
+        image_save_dir='/data/yolo'
     ):
 
         super(TFLiteReceiver, self).__init__(
@@ -33,9 +38,15 @@ class TFLiteReceiver(Node):
         self.confidence_threshold = float(confidence_threshold)
         self.logger = logger
         self.log_all_detections = log_all_detections
+        self.image_save_dir = image_save_dir
         
-        # Dynamically generate the topic string from the pipe prefix
+        # Dynamically generate the topic strings from the pipe prefix
         self.detection_topic = f"/{pipe_prefix}_tflite_data" if pipe_prefix else "/tflite_data"
+        self.image_topic = f"/{pipe_prefix}_tflite" if pipe_prefix else "/tflite"
+
+        # Image buffering for saving exact detection frames
+        self.bridge = CvBridge()
+        self.latest_frame = None
 
         # -------------------------------------------------
         # Start voxl-tflite-server service
@@ -102,6 +113,23 @@ class TFLiteReceiver(Node):
         )
 
         # -------------------------------------------------
+        # Subscribe to TFLite images (for saving exact frames)
+        # -------------------------------------------------
+
+        self.image_subscription = self.create_subscription(
+            Image,
+            self.image_topic,
+            self.image_callback,
+            qos_profile
+        )
+
+        self.logger.info(
+            'Listening for TFLite images on {}'.format(
+                self.image_topic
+            )
+        )
+
+        # -------------------------------------------------
         # Subscribe to TFLite detections
         # -------------------------------------------------
 
@@ -117,6 +145,13 @@ class TFLiteReceiver(Node):
                 self.detection_topic
             )
         )
+
+    def image_callback(self, msg):
+        """Continually buffer the latest visual frame."""
+        try:
+            self.latest_frame = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+        except Exception as e:
+            pass # Suppress image conversion errors to prevent console spam
 
     def reset_trigger(self):
         """Resets the detection block to allow subsequent triggers."""
@@ -144,6 +179,15 @@ class TFLiteReceiver(Node):
             )
 
             self.action_triggered = True
+            
+            # Save the exact frame buffer
+            if self.latest_frame is not None:
+                ts_str = datetime.datetime.now().strftime('%Y%m%d_%H%M%S_%f')[:-3]
+                filename = os.path.join(self.image_save_dir, f"detection_{ts_str}.jpg")
+                cv2.imwrite(filename, self.latest_frame)
+                self.logger.info(f"Saved exact detection frame to {filename}")
+            else:
+                self.logger.warning("Person detected, but image frame not yet available to save.")
 
             asyncio.run_coroutine_threadsafe(
                 self.action_callback(),

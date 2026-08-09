@@ -7,6 +7,7 @@ import configparser
 import sys
 import time
 import datetime
+import os
 
 from PX4Connector import PX4Connector
 from VisionHubConnector import VisionHubConnector
@@ -70,6 +71,14 @@ def main():
 
     # Retrieve logging configuration
     LOG_ALL_DETECTIONS = config.getboolean('GENERAL', 'LOG_ALL_DETECTIONS', fallback=False)
+    IMAGE_SAVE_DIR = config.get('GENERAL', 'IMAGE_SAVE_DIR', fallback='/data/yolo')
+
+    # Ensure the save directory exists
+    try:
+        os.makedirs(IMAGE_SAVE_DIR, exist_ok=True)
+        logger.info(f"Image save directory confirmed at: {IMAGE_SAVE_DIR}")
+    except Exception as e:
+        logger.error(f"Failed to create image save directory {IMAGE_SAVE_DIR}: {e}")
     
     # Track our processors globally for the telemetry reset callback
     yolo_processor = None
@@ -192,7 +201,8 @@ def main():
                 artificial_latency_ms=config.get('GENERAL', 'ARTIFICIAL_LATENCY_MS', fallback='0'),
                 action_callback=action_callback,
                 logger=processor_logger,
-                log_all_detections=LOG_ALL_DETECTIONS
+                log_all_detections=LOG_ALL_DETECTIONS,
+                image_save_dir=IMAGE_SAVE_DIR
             )
 
             logger.info('YOLO Processor is ready')
@@ -225,7 +235,8 @@ def main():
                 pipe_prefix=pipe_prefix,
                 confidence_threshold=confidence_threshold,
                 logger=receiver_logger,
-                log_all_detections=LOG_ALL_DETECTIONS
+                log_all_detections=LOG_ALL_DETECTIONS,
+                image_save_dir=IMAGE_SAVE_DIR
             )
 
             logger.info('TFLite Receiver is ready. Spinning ROS 2 node...')

@@ -1,0 +1,2 @@
+# requirements are for Python 3.6.9 installed in VOXL 2 
+mavsdk

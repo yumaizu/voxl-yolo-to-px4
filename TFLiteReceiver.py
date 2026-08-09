@@ -16,7 +16,6 @@ class TFLiteReceiver(Node):
     def __init__(
         self,
         loop,
-        detection_topic,
         action_callback,
         pipe_prefix,
         logger,
@@ -32,6 +31,9 @@ class TFLiteReceiver(Node):
         self.action_triggered = False
         self.logger = logger
         self.log_all_detections = log_all_detections
+        
+        # Dynamically generate the topic string from the pipe prefix
+        self.detection_topic = f"/{pipe_prefix}_tflite_data" if pipe_prefix else "/tflite_data"
 
         # -------------------------------------------------
         # Start voxl-tflite-server service
@@ -103,14 +105,14 @@ class TFLiteReceiver(Node):
 
         self.subscription = self.create_subscription(
             Aidetection,
-            detection_topic,
+            self.detection_topic,
             self.detection_callback,
             qos_profile
         )
 
         self.logger.info(
             'Listening for TFLite detections on {}'.format(
-                detection_topic
+                self.detection_topic
             )
         )
 

@@ -193,20 +193,18 @@ def main():
 
             rclpy_module.init()
 
-            # Retrieve receiver config from the new TFLITE_RECEIVER section
-            detection_topic = config.get('TFLITE_RECEIVER', 'DETECTION_TOPIC', fallback='/tflite/aidetection')
+            # Retrieve receiver config from the TFLITE_RECEIVER section
             pipe_prefix = config.get('TFLITE_RECEIVER', 'PIPE_PREFIX', fallback='')
 
             tflite_receiver = TFLiteReceiver(
                 loop=loop,
-                detection_topic=detection_topic,
                 action_callback=action_callback,
                 pipe_prefix=pipe_prefix,
                 logger=logging.getLogger('tflite_receiver'),
                 log_all_detections=LOG_ALL_DETECTIONS
             )
 
-            logger.info('TFLITE Receiver is ready. Spinning ROS 2 node...')
+            logger.info('TFLite Receiver is ready. Spinning ROS 2 node...')
             rclpy_module.spin(tflite_receiver)
 
         else:

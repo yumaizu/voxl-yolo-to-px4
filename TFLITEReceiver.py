@@ -11,7 +11,7 @@ from rclpy.qos import HistoryPolicy
 
 from voxl_msgs.msg import Aidetection
 
-class TFLITEReceiver(Node):
+class TFLiteReceiver(Node):
 
     def __init__(
         self,
@@ -19,10 +19,11 @@ class TFLITEReceiver(Node):
         detection_topic,
         action_callback,
         pipe_prefix,
-        logger
+        logger,
+        log_all_detections=False
     ):
 
-        super(TFLITEReceiver, self).__init__(
+        super(TFLiteReceiver, self).__init__(
             'tflite_receiver'
         )
 
@@ -30,6 +31,7 @@ class TFLITEReceiver(Node):
         self.action_callback = action_callback
         self.action_triggered = False
         self.logger = logger
+        self.log_all_detections = log_all_detections
 
         # -------------------------------------------------
         # Start voxl-tflite-server service
@@ -114,12 +116,13 @@ class TFLITEReceiver(Node):
 
     def detection_callback(self, msg):
 
-        self.logger.info(
-            'Detection: {} | Confidence: {}'.format(
-                msg.class_name,
-                msg.class_confidence
+        if self.log_all_detections:
+            self.logger.info(
+                'Detection: {} | Confidence: {:.2f}'.format(
+                    msg.class_name,
+                    msg.class_confidence
+                )
             )
-        )
 
         if (
             msg.class_name == 'person'

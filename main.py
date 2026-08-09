@@ -64,6 +64,9 @@ def main():
     )
     asyncio_thread.start()
 
+    # Retrieve logging configuration
+    LOG_ALL_DETECTIONS = config.getboolean('GENERAL', 'LOG_ALL_DETECTIONS', fallback=False)
+
     # -------------------------------------------------
     # Connector Selection (PX4 vs VISION_HUB)
     # -------------------------------------------------
@@ -169,7 +172,8 @@ def main():
                 web_view=web_view,
                 artificial_latency_ms=config.get('GENERAL', 'ARTIFICIAL_LATENCY_MS', fallback='0'),
                 action_callback=action_callback,
-                logger=logging.getLogger('yolo_processor')
+                logger=logging.getLogger('yolo_processor'),
+                log_all_detections=LOG_ALL_DETECTIONS
             )
 
             logger.info('YOLO Processor is ready')
@@ -181,7 +185,7 @@ def main():
         elif YOLO_MODE == 'voxl-tflite-server':
             try:
                 import rclpy
-                from TFLITEReceiver import TFLITEReceiver
+                from TFLiteReceiver import TFLiteReceiver
                 rclpy_module = rclpy
             except ImportError as e:
                 logger.error(f'Failed to import ROS 2 / rclpy modules for voxl-tflite-server mode: {e}')
@@ -193,12 +197,13 @@ def main():
             detection_topic = config.get('TFLITE_RECEIVER', 'DETECTION_TOPIC', fallback='/tflite/aidetection')
             pipe_prefix = config.get('TFLITE_RECEIVER', 'PIPE_PREFIX', fallback='')
 
-            tflite_receiver = TFLITEReceiver(
+            tflite_receiver = TFLiteReceiver(
                 loop=loop,
                 detection_topic=detection_topic,
                 action_callback=action_callback,
                 pipe_prefix=pipe_prefix,
-                logger=logging.getLogger('tflite_receiver')
+                logger=logging.getLogger('tflite_receiver'),
+                log_all_detections=LOG_ALL_DETECTIONS
             )
 
             logger.info('TFLITE Receiver is ready. Spinning ROS 2 node...')

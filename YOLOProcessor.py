@@ -9,12 +9,13 @@ from DelayedVideo import DelayedVideo
 
 class YOLOProcessor:
     def __init__(self, loop, rtsp_url, model_path, confidence_threshold, device, 
-                 enable_debug_window, web_view, artificial_latency_ms, action_callback, logger):
+                 enable_debug_window, web_view, artificial_latency_ms, action_callback, logger, log_all_detections=False):
         self.loop = loop
         self.model_path = model_path
         self.confidence_threshold = float(confidence_threshold)
         self.enable_debug_window = enable_debug_window
         self.web_view = web_view
+        self.log_all_detections = log_all_detections
 
         # Convert milliseconds to seconds for MAVLink asyncio.sleep
         self.latency_sec = float(artificial_latency_ms) / 1000.0
@@ -82,10 +83,19 @@ class YOLOProcessor:
             person_detected = False
             for result in results:
                 for box in result.boxes:
-                    if int(box.cls) == 0 and float(box.conf) >= self.confidence_threshold:
+                    cls_id = int(box.cls)
+                    conf = float(box.conf)
+                    
+                    if self.log_all_detections:
+                        cls_name = self.model.names[cls_id] if hasattr(self.model, 'names') else str(cls_id)
+                        self.logger.info(f"Detection: {cls_name} | Confidence: {conf:.2f}")
+
+                    if cls_id == 0 and conf >= self.confidence_threshold:
                         person_detected = True
-                        break
-                if person_detected:
+                        if not self.log_all_detections:
+                            break # Early exit optimization if we aren't logging every box
+                
+                if person_detected and not self.log_all_detections:
                     break
 
             if person_detected and not self.action_triggered:

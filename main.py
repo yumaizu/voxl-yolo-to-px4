@@ -8,6 +8,9 @@ import sys
 import time
 import datetime
 
+from PX4Connector import PX4Connector
+from VisionHubConnector import VisionHubConnector
+
 # -------------------------------------------------
 # Custom Colorized Logging Formatter
 # -------------------------------------------------

@@ -6,12 +6,47 @@ import logging
 import configparser
 import sys
 import time
+import datetime
 
-from PX4Connector import PX4Connector
-from VisionHubConnector import VisionHubConnector
+# -------------------------------------------------
+# Custom Colorized Logging Formatter
+# -------------------------------------------------
+class ColorFormatter(logging.Formatter):
+    COLORS = {
+        logging.DEBUG: "\x1b[34m",       # Blue
+        logging.INFO: "\x1b[32m",        # Green
+        logging.WARNING: "\x1b[33m",     # Yellow
+        logging.ERROR: "\x1b[31m",       # Red
+        logging.CRITICAL: "\x1b[31;1m"   # Bold Red
+    }
+    RESET = "\x1b[0m"
 
-logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
-logger = logging.getLogger(__name__)
+    def formatTime(self, record, datefmt=None):
+        """Formats the timestamp to exactly match: YYYY-MM-DD HH:MM:SS.0000"""
+        ct = datetime.datetime.fromtimestamp(record.created)
+        t = ct.strftime("%Y-%m-%d %H:%M:%S")
+        s = f"{t}.{ct.microsecond // 100:04d}"
+        return s
+
+    def format(self, record):
+        color = self.COLORS.get(record.levelno, self.RESET)
+        # Apply color only to the [LEVEL] block to keep the output clean
+        format_str = f"{color}[%(levelname)s]{self.RESET} [%(asctime)s] [%(name)s]: %(message)s"
+        formatter = logging.Formatter(format_str)
+        formatter.formatTime = self.formatTime
+        return formatter.format(record)
+
+# Setup root logger to capture everything
+root_logger = logging.getLogger()
+root_logger.setLevel(logging.INFO)
+if root_logger.hasHandlers():
+    root_logger.handlers.clear()
+console_handler = logging.StreamHandler()
+console_handler.setFormatter(ColorFormatter())
+root_logger.addHandler(console_handler)
+
+# Create the main logger
+logger = logging.getLogger('main')
 
 config = configparser.ConfigParser()
 if not config.read('config.ini'):
@@ -36,7 +71,7 @@ def main():
 
     if CONNECTOR_TYPE == 'PX4':
         connector = PX4Connector(
-            logger=logger,
+            logger=logging.getLogger('px4'),
             system_address=config.get('PX4', 'ADDRESS')
         )
         actions = {
@@ -62,7 +97,7 @@ def main():
         trigger_port = config.getint('VISIONHUB', 'TRIGGER_PORT', fallback=5005)
 
         connector = VisionHubConnector(
-            logger=logger,
+            logger=logging.getLogger('vision_hub'),
             drone_ip=drone_ip,
             port=trigger_port
         )
@@ -108,7 +143,6 @@ def main():
 
     try:
         if YOLO_MODE == 'python':
-            # Dynamically import YOLOProcessor to prevent cv2/ultralytics crashes on the drone
             try:
                 from YOLOProcessor import YOLOProcessor
             except ImportError as e:
@@ -117,11 +151,10 @@ def main():
 
             enable_web_stream = config.getboolean('YOLO', 'ENABLE_WEB_STREAM', fallback=True)
             
-            # Instantiate and start the web server if enabled
             if enable_web_stream:
                 from YOLOWebView import YOLOWebView
                 web_port = config.get('YOLO', 'WEB_PORT', fallback='8080')
-                web_view = YOLOWebView(port=web_port, logger=logger)
+                web_view = YOLOWebView(port=web_port, logger=logging.getLogger('web_view'))
                 web_view.start()
 
             yolo_processor = YOLOProcessor(
@@ -134,18 +167,16 @@ def main():
                 web_view=web_view,
                 artificial_latency_ms=config.get('GENERAL', 'ARTIFICIAL_LATENCY_MS', fallback='0'),
                 action_callback=actions[DETECTION_ACTION],
-                logger=logger
+                logger=logging.getLogger('yolo_processor')
             )
 
             logger.info('YOLO Processor is ready')
             yolo_processor.start()
 
-            # Keep main thread active for PyTorch/OpenCV execution
             while True:
                 time.sleep(1)
 
         elif YOLO_MODE == 'voxl-tflite-server':
-            # Dynamic import to prevent dependency errors on non-ROS systems
             try:
                 import rclpy
                 from YOLOReceiver import YOLOReceiver
@@ -163,7 +194,8 @@ def main():
                 loop=loop,
                 detection_topic=detection_topic,
                 action_callback=actions[DETECTION_ACTION],
-                pipe_prefix=pipe_prefix
+                pipe_prefix=pipe_prefix,
+                logger=logging.getLogger('yolo_receiver')
             )
 
             logger.info('YOLO Receiver is ready. Spinning ROS 2 node...')

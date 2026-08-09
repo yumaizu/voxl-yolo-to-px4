@@ -34,7 +34,6 @@ class ColorFormatter(logging.Formatter):
 
     def format(self, record):
         color = self.COLORS.get(record.levelno, self.RESET)
-        # Apply color only to the [LEVEL] block to keep the output clean
         format_str = f"{color}[%(levelname)s]{self.RESET} [%(asctime)s] [%(name)s]: %(message)s"
         formatter = logging.Formatter(format_str)
         formatter.formatTime = self.formatTime
@@ -50,7 +49,7 @@ console_handler.setFormatter(ColorFormatter())
 console_handler.setLevel(logging.DEBUG) 
 root_logger.addHandler(console_handler)
 
-# Suppress internal aiogrpc errors during KeyboardInterrupt shutdown
+# Suppress internal aiogrpc errors during shutdown
 logging.getLogger('aiogrpc').setLevel(logging.CRITICAL)
 
 # Create the main logger
@@ -69,25 +68,29 @@ def main():
     )
     asyncio_thread.start()
 
+    # Event to handle clean application shutdown
+    shutdown_event = threading.Event()
+
+    def request_shutdown():
+        logger.info("Initiating graceful application shutdown...")
+        shutdown_event.set()
+
     # Retrieve general configurations
     LOG_ALL_DETECTIONS = config.getboolean('GENERAL', 'LOG_ALL_DETECTIONS', fallback=False)
     IMAGE_SAVE_DIR = config.get('GENERAL', 'IMAGE_SAVE_DIR', fallback='./yolo_detections')
 
-    # Ensure the save directory exists
     try:
         os.makedirs(IMAGE_SAVE_DIR, exist_ok=True)
         logger.info(f"Image save directory confirmed at: {IMAGE_SAVE_DIR}")
     except Exception as e:
         logger.error(f"Failed to create image save directory {IMAGE_SAVE_DIR}: {e}")
     
-    # Track our processors globally for the telemetry reset callback
     yolo_processor = None
     tflite_receiver = None
     web_view = None
     rclpy_module = None
 
     def on_arm_state_change(is_armed):
-        """Callback fired by PX4Connector when the drone arm state changes."""
         if is_armed:
             logger.info("Drone armed. Resetting active detection triggers.")
             if yolo_processor is not None:
@@ -106,7 +109,6 @@ def main():
         on_arm_state_change=on_arm_state_change
     )
     
-    # Always connect to MAVLink first to establish telemetry and get drone status
     future = asyncio.run_coroutine_threadsafe(px4_connector.connect(), loop)
     try:
         future.result()
@@ -117,7 +119,7 @@ def main():
         sys.exit(1)
 
     # -------------------------------------------------
-    # Connector Selection (PX4 vs VISION_HUB)
+    # Connector Selection
     # -------------------------------------------------
     CONNECTOR_TYPE = config.get('GENERAL', 'CONNECTOR_TYPE', fallback='VISION_HUB').upper()
     logger.info(f'Configuring action callback for connector type: {CONNECTOR_TYPE}')
@@ -134,13 +136,11 @@ def main():
         DETECTION_ACTION = config.get('PX4', 'DETECTION_ACTION', fallback='offboard')
         if DETECTION_ACTION not in px4_actions:
             logger.error(f'Unknown detection action: {DETECTION_ACTION}')
-            logger.error(f'Available actions: {", ".join(px4_actions.keys())}')
             loop.call_soon_threadsafe(loop.stop)
             asyncio_thread.join()
             sys.exit(1)
             
         action_callback = px4_actions[DETECTION_ACTION]
-        logger.info(f'Detection action configured: {DETECTION_ACTION}')
 
     elif CONNECTOR_TYPE == 'VISION_HUB':
         drone_ip = config.get('VISIONHUB', 'DRONE_IP', fallback='127.0.0.1')
@@ -159,13 +159,13 @@ def main():
         action_callback = async_trigger_descent
 
     else:
-        logger.error(f'Unknown CONNECTOR_TYPE: {CONNECTOR_TYPE}. Must be "PX4" or "VISION_HUB".')
+        logger.error(f'Unknown CONNECTOR_TYPE: {CONNECTOR_TYPE}.')
         loop.call_soon_threadsafe(loop.stop)
         asyncio_thread.join()
         sys.exit(1)
 
     # -------------------------------------------------
-    # YOLO Mode Selection (python vs voxl-tflite-server)
+    # YOLO Mode Selection
     # -------------------------------------------------
     YOLO_MODE = config.get('GENERAL', 'YOLO_MODE', fallback='python').strip().lower()
     logger.info(f'Using YOLO mode: {YOLO_MODE}')
@@ -175,7 +175,7 @@ def main():
             try:
                 from YOLOProcessor import YOLOProcessor
             except ImportError as e:
-                logger.error(f'Failed to import YOLO modules (cv2/ultralytics): {e}')
+                logger.error(f'Failed to import YOLO modules: {e}')
                 sys.exit(1)
 
             enable_web_stream = config.getboolean('YOLO', 'ENABLE_WEB_STREAM', fallback=True)
@@ -200,6 +200,7 @@ def main():
                 web_view=web_view,
                 artificial_latency_ms=config.get('GENERAL', 'ARTIFICIAL_LATENCY_MS', fallback='0'),
                 action_callback=action_callback,
+                shutdown_callback=request_shutdown,
                 logger=processor_logger,
                 log_all_detections=LOG_ALL_DETECTIONS,
                 image_save_dir=IMAGE_SAVE_DIR
@@ -208,18 +209,20 @@ def main():
             logger.info('YOLO Processor is ready')
             yolo_processor.start()
 
-            while True:
-                time.sleep(1)
+            # Wait until shutdown is requested via 'q' or KeyboardInterrupt
+            while not shutdown_event.is_set():
+                time.sleep(0.5)
 
         elif YOLO_MODE == 'voxl-tflite-server':
             try:
                 import rclpy
                 from TFLiteReceiver import TFLiteReceiver
+                rclpy_module = rclpy
             except ImportError as e:
-                logger.error(f'Failed to import ROS 2 / rclpy modules for voxl-tflite-server mode: {e}')
+                logger.error(f'Failed to import ROS 2 modules: {e}')
                 sys.exit(1)
 
-            rclpy.init()
+            rclpy_module.init()
 
             pipe_prefix = config.get('TFLITE_RECEIVER', 'PIPE_PREFIX', fallback='')
             confidence_threshold = config.get('TFLITE_RECEIVER', 'CONFIDENCE_THRESHOLD', fallback='0.6')
@@ -239,10 +242,16 @@ def main():
             )
 
             logger.info('TFLite Receiver is ready. Spinning ROS 2 node...')
-            rclpy.spin(tflite_receiver)
+            
+            # Spin ROS 2 in a background thread or custom loop check so KeyboardInterrupt works reliably
+            spin_thread = threading.Thread(target=rclpy_module.spin, args=(tflite_receiver,), daemon=True)
+            spin_thread.start()
+
+            while not shutdown_event.is_set():
+                time.sleep(0.5)
 
         else:
-            logger.error(f'Unknown YOLO_MODE: {YOLO_MODE}. Must be "python" or "voxl-tflite-server".')
+            logger.error(f'Unknown YOLO_MODE: {YOLO_MODE}.')
 
     except KeyboardInterrupt:
         logger.info('Shutting down via KeyboardInterrupt')

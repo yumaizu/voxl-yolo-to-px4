@@ -8,9 +8,15 @@ import numpy as np
 from ultralytics import YOLO
 from DelayedVideo import DelayedVideo
 
+# Suppress harmless OpenCV/Qt font warnings
+os.environ['QT_QPA_FONTDIR'] = '/usr/share/fonts'
+
+# Suppress FFmpeg HEVC/H.265 stream decoding error spam in the console
+os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "loglevel;32"  # AV_LOG_INFO (or 24 for warning)
+
 class YOLOProcessor:
     def __init__(self, loop, rtsp_url, model_path, confidence_threshold, device, 
-                 enable_debug_window, web_view, artificial_latency_ms, action_callback, logger, log_all_detections=False, image_save_dir='./yolo_detections'):
+                 enable_debug_window, web_view, artificial_latency_ms, action_callback, shutdown_callback, logger, log_all_detections=False, image_save_dir='./yolo_detections'):
         self.loop = loop
         self.model_path = model_path
         self.confidence_threshold = float(confidence_threshold)
@@ -18,6 +24,7 @@ class YOLOProcessor:
         self.web_view = web_view
         self.log_all_detections = log_all_detections
         self.image_save_dir = image_save_dir
+        self.shutdown_callback = shutdown_callback
 
         # Convert milliseconds to seconds for MAVLink asyncio.sleep
         self.latency_sec = float(artificial_latency_ms) / 1000.0
@@ -80,6 +87,7 @@ class YOLOProcessor:
                 if self.enable_debug_window:
                     if cv2.waitKey(1) & 0xFF == ord('q'):
                         self.logger.info("Exit requested via 'q' key.")
+                        self.running = False
                         break
                 continue
 
@@ -161,7 +169,12 @@ class YOLOProcessor:
                 cv2.imshow("YOLO Debug Window", annotated_frame)
                 if cv2.waitKey(1) & 0xFF == ord('q'):
                     self.logger.info("Exit requested via 'q' key.")
+                    self.running = False
                     break
+
+        # Trigger full application shutdown cleanly from the main loop
+        if self.shutdown_callback:
+            self.loop.call_soon_threadsafe(self.shutdown_callback)
 
     def stop(self):
         self.logger.info("Stopping YOLO processor...")

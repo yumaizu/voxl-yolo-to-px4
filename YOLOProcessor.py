@@ -10,7 +10,7 @@ from DelayedVideo import DelayedVideo
 
 class YOLOProcessor:
     def __init__(self, loop, rtsp_url, model_path, confidence_threshold, device, 
-                 enable_debug_window, web_view, artificial_latency_ms, action_callback, logger, log_all_detections=False, image_save_dir='/data/yolo'):
+                 enable_debug_window, web_view, artificial_latency_ms, action_callback, logger, log_all_detections=False, image_save_dir='./yolo_detections'):
         self.loop = loop
         self.model_path = model_path
         self.confidence_threshold = float(confidence_threshold)

@@ -69,9 +69,9 @@ def main():
     )
     asyncio_thread.start()
 
-    # Retrieve logging configuration
+    # Retrieve general configurations
     LOG_ALL_DETECTIONS = config.getboolean('GENERAL', 'LOG_ALL_DETECTIONS', fallback=False)
-    IMAGE_SAVE_DIR = config.get('GENERAL', 'IMAGE_SAVE_DIR', fallback='/data/yolo')
+    IMAGE_SAVE_DIR = config.get('GENERAL', 'IMAGE_SAVE_DIR', fallback='./yolo_detections')
 
     # Ensure the save directory exists
     try:
@@ -215,12 +215,11 @@ def main():
             try:
                 import rclpy
                 from TFLiteReceiver import TFLiteReceiver
-                rclpy_module = rclpy
             except ImportError as e:
                 logger.error(f'Failed to import ROS 2 / rclpy modules for voxl-tflite-server mode: {e}')
                 sys.exit(1)
 
-            rclpy_module.init()
+            rclpy.init()
 
             pipe_prefix = config.get('TFLITE_RECEIVER', 'PIPE_PREFIX', fallback='')
             confidence_threshold = config.get('TFLITE_RECEIVER', 'CONFIDENCE_THRESHOLD', fallback='0.6')
@@ -240,7 +239,7 @@ def main():
             )
 
             logger.info('TFLite Receiver is ready. Spinning ROS 2 node...')
-            rclpy_module.spin(tflite_receiver)
+            rclpy.spin(tflite_receiver)
 
         else:
             logger.error(f'Unknown YOLO_MODE: {YOLO_MODE}. Must be "python" or "voxl-tflite-server".')

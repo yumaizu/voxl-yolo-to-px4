@@ -81,7 +81,7 @@ class PX4Connector:
         self.logger.info('====================================')
         self.logger.info(f' Armed State : {"ARMED" if self.is_armed else "DISARMED"}')
         self.logger.info(f' Flight Mode : {flight_mode}')
-        self.logger.info(f' Battery     : {int(battery_pct * 100)}%')
+        self.logger.info(f' Battery     : {int(battery_pct)}%')
         self.logger.info('====================================')
         
         self.logger.info('Telemetry connection established. Starting detection processors...')

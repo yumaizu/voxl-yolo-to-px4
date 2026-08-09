@@ -55,8 +55,11 @@ class YOLOReceiver(Node):
             'Waiting for voxl-tflite-server to start...'
         )
         
-        # wait for directory to be created
-        while not os.path.exists(pipe_path):
+        # Wait for directory to be created AND contain files (like 'info', 'request')
+        while True:
+            if os.path.exists(pipe_path) and os.path.isdir(pipe_path):
+                if len(os.listdir(pipe_path)) > 0:
+                    break
             sleep(1)
 
         self.logger.info(

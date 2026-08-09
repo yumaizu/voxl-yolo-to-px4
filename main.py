@@ -53,7 +53,7 @@ logger = logging.getLogger('main')
 
 config = configparser.ConfigParser()
 if not config.read('config.ini'):
-    logger.warning('Failed to read config.ini, using default config.ini')
+    logger.warning('Failed to read config.ini, using config_default.ini')
     config.read('config_default.ini')
 
 def main():
@@ -70,18 +70,31 @@ def main():
     CONNECTOR_TYPE = config.get('GENERAL', 'CONNECTOR_TYPE', fallback='VISION_HUB').upper()
     logger.info(f'Using connector type: {CONNECTOR_TYPE}')
 
-    actions = {}
+    action_callback = None
 
     if CONNECTOR_TYPE == 'PX4':
         connector = PX4Connector(
             logger=logging.getLogger('px4'),
             system_address=config.get('PX4', 'ADDRESS')
         )
-        actions = {
+        
+        px4_actions = {
             'hold': connector.set_hold_mode,
             'land': connector.set_land_mode,
             'offboard': connector.set_offboard_mode
         }
+        
+        # Only parse and validate DETECTION_ACTION if we are using the PX4 connector
+        DETECTION_ACTION = config.get('PX4', 'DETECTION_ACTION', fallback='offboard')
+        if DETECTION_ACTION not in px4_actions:
+            logger.error(f'Unknown detection action: {DETECTION_ACTION}')
+            logger.error(f'Available actions: {", ".join(px4_actions.keys())}')
+            loop.call_soon_threadsafe(loop.stop)
+            asyncio_thread.join()
+            sys.exit(1)
+            
+        action_callback = px4_actions[DETECTION_ACTION]
+        logger.info(f'Detection action configured: {DETECTION_ACTION}')
         
         future = asyncio.run_coroutine_threadsafe(
             connector.connect(),
@@ -108,11 +121,8 @@ def main():
         async def async_trigger_descent():
             connector.trigger_descent()
 
-        actions = {
-            'hold': async_trigger_descent,
-            'land': async_trigger_descent,
-            'offboard': async_trigger_descent
-        }
+        # Hardcode the callback to our UDP trigger, skipping the config check entirely
+        action_callback = async_trigger_descent
         
         connector.connect()
 
@@ -121,17 +131,6 @@ def main():
         loop.call_soon_threadsafe(loop.stop)
         asyncio_thread.join()
         sys.exit(1)
-
-    # Validate the chosen detection action
-    DETECTION_ACTION = config.get('PX4', 'DETECTION_ACTION', fallback='offboard')
-    if DETECTION_ACTION not in actions:
-        logger.error(f'Unknown detection action: {DETECTION_ACTION}')
-        logger.error(f'Available actions: {", ".join(actions.keys())}')
-        loop.call_soon_threadsafe(loop.stop)
-        asyncio_thread.join()
-        return
-
-    logger.info(f'Detection action configured: {DETECTION_ACTION}')
 
     # -------------------------------------------------
     # YOLO Mode Selection (python vs voxl-tflite-server)
@@ -169,7 +168,7 @@ def main():
                 enable_debug_window=config.getboolean('YOLO', 'ENABLE_DEBUG_WINDOW', fallback=False),
                 web_view=web_view,
                 artificial_latency_ms=config.get('GENERAL', 'ARTIFICIAL_LATENCY_MS', fallback='0'),
-                action_callback=actions[DETECTION_ACTION],
+                action_callback=action_callback,
                 logger=logging.getLogger('yolo_processor')
             )
 
@@ -196,7 +195,7 @@ def main():
             yolo_receiver = YOLOReceiver(
                 loop=loop,
                 detection_topic=detection_topic,
-                action_callback=actions[DETECTION_ACTION],
+                action_callback=action_callback,
                 pipe_prefix=pipe_prefix,
                 logger=logging.getLogger('yolo_receiver')
             )
